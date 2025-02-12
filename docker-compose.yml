@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"  # Next.js web app
+      - "2525:2525"  # SMTP server
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/prisma/dev.db
+      - SMTP_HOST=0.0.0.0
+      - SMTP_PORT=2525
+    volumes:
+      - ./prisma/dev.db:/app/prisma/dev.db  # Persist SQLite database
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3 

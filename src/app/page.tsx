@@ -1,46 +1,191 @@
-import Link from "next/link";
+'use client';
+
+import { EmailList } from '@/components/EmailList';
+import { EmailViewer } from '@/components/EmailViewer';
+import { RefreshButton } from '@/components/RefreshButton';
+import { Logo } from '@/app/components/Logo';
+import type { Email } from '@/lib/types';
+import { useEffect, useState, useCallback } from 'react';
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle
+} from 'react-resizable-panels';
+import { Search, Filter, Settings } from 'lucide-react';
+import Link from 'next/link';
+
+async function getEmails(): Promise<Email[]> {
+  const response = await fetch('/api/emails');
+  if (!response.ok) {
+    throw new Error('Failed to fetch emails');
+  }
+  return response.json();
+}
+
+const POLLING_INTERVAL = 3000; // Poll every 3 seconds
 
 export default function Home() {
+  const [emails, setEmails] = useState<Email[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const unreadCount = emails.filter(email => !email.isRead).length;
+
+  const fetchEmails = useCallback(async (isInitialLoad = false) => {
+    try {
+      if (isInitialLoad) {
+        setIsLoading(true);
+      }
+      const data = await getEmails();
+      
+      // Only update if there are changes
+      setEmails(prevEmails => {
+        if (prevEmails.length !== data.length || 
+            JSON.stringify(prevEmails) !== JSON.stringify(data)) {
+          return data;
+        }
+        return prevEmails;
+      });
+    } catch (error) {
+      console.error('Error fetching emails:', error);
+    } finally {
+      if (isInitialLoad) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchEmails(true);
+  }, [fetchEmails]);
+
+  // Set up polling
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      fetchEmails(false);
+    }, POLLING_INTERVAL);
+
+    return () => clearInterval(intervalId);
+  }, [fetchEmails]);
+
+  const handleSelectEmail = async (email: Email) => {
+    if (!email.isRead) {
+      try {
+        await fetch('/api/emails/mark-read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emailId: email.id }),
+        });
+        
+        setEmails(emails.map(e => 
+          e.id === email.id ? { ...e, isRead: true } : e
+        ));
+      } catch (error) {
+        console.error('Error marking email as read:', error);
+      }
+    }
+    setSelectedEmail(email);
+  };
+
+  // Update selected email when emails are updated
+  useEffect(() => {
+    if (selectedEmail) {
+      const updatedEmail = emails.find(e => e.id === selectedEmail.id);
+      if (updatedEmail && JSON.stringify(updatedEmail) !== JSON.stringify(selectedEmail)) {
+        setSelectedEmail(updatedEmail);
+      }
+    }
+  }, [emails, selectedEmail]);
+
+  const filteredEmails = emails.filter(email => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      email.subject?.toLowerCase().includes(searchLower) ||
+      email.from.toLowerCase().includes(searchLower) ||
+      email.to.toLowerCase().includes(searchLower) ||
+      email.text?.toLowerCase().includes(searchLower)
+    );
+  });
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-8">
-      <div>
-        <h2 className="text-2xl font-semibold text-center border p-4 font-mono rounded-md">
-          Get started by choosing a template path from the /paths/ folder.
-        </h2>
-      </div>
-      <div>
-        <h1 className="text-6xl font-bold text-center">Make anything you imagine 🪄</h1>
-        <h2 className="text-2xl text-center font-light text-gray-500 pt-4">
-          This whole page will be replaced when you run your template path.
-        </h2>
-      </div>
-      <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">AI Chat App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            An intelligent conversational app powered by AI models, featuring real-time responses
-            and seamless integration with Next.js and various AI providers.
-          </p>
+    <main className="h-screen bg-gray-100">
+      <div className="h-full flex flex-col">
+        {/* Header */}
+        <div className="bg-white shadow-sm">
+          <div className="max-w-[1920px] mx-auto px-4 py-3">
+            <div className="flex items-center gap-4">
+              <Logo />
+              <div className="flex-1 max-w-xl">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search emails..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-1.5 text-sm bg-gray-100 border border-transparent rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
+                  />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button className="p-1.5 text-gray-700 hover:bg-gray-100 rounded-md">
+                  <Filter className="w-4 h-4" />
+                </button>
+                <Link
+                  href="/rules"
+                  className="p-1.5 text-gray-700 hover:bg-gray-100 rounded-md"
+                  title="Email Rules"
+                >
+                  <Settings className="w-4 h-4" />
+                </Link>
+                <RefreshButton onClick={fetchEmails} />
+                {unreadCount > 0 && (
+                  <span className="text-sm font-medium text-blue-600">
+                    {unreadCount} unread
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">AI Image Generation App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            Create images from text prompts using AI, powered by the Replicate API and Next.js.
-          </p>
-        </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">Social Media App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            A feature-rich social platform with user profiles, posts, and interactions using
-            Firebase and Next.js.
-          </p>
-        </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">Voice Notes App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            A voice-based note-taking app with real-time transcription using Deepgram API, 
-            Firebase integration for storage, and a clean, simple interface built with Next.js.
-          </p>
+
+        {/* Main content */}
+        <div className="flex-1 overflow-hidden">
+          <PanelGroup direction="horizontal">
+            <Panel defaultSize={30} minSize={20}>
+              <div className="h-full bg-white overflow-hidden border-r">
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : filteredEmails.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500">
+                      {searchQuery ? 'No emails match your search' : 'No emails yet'}
+                    </p>
+                    {!searchQuery && (
+                      <p className="text-sm text-gray-400 mt-1">
+                        Send an email to localhost:2525 to see it appear here
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <EmailList
+                    emails={filteredEmails}
+                    selectedEmailId={selectedEmail?.id ?? null}
+                    onSelectEmail={handleSelectEmail}
+                  />
+                )}
+              </div>
+            </Panel>
+
+            <PanelResizeHandle className="w-1 bg-gray-200 hover:bg-blue-500 transition-colors cursor-col-resize" />
+
+            <Panel minSize={30}>
+              <EmailViewer email={selectedEmail} />
+            </Panel>
+          </PanelGroup>
         </div>
       </div>
     </main>

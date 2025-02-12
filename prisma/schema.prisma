@@ -1,0 +1,33 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Email {
+  id          Int      @id @default(autoincrement())
+  from        String
+  to          String   // Comma-separated list of recipients
+  subject     String?
+  text        String?
+  html        String?
+  attachments Json?
+  headers     Json?
+  receivedAt  DateTime @default(now())
+  isRead      Boolean  @default(false)
+}
+
+model EmailRule {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  conditions Json     // Array of conditions
+  action    Json     // Action configuration
+  createdAt DateTime @default(now())
+}
