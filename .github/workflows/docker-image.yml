@@ -1,0 +1,22 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build the Docker image
+      run: docker build . --file Dockerfile --tag mailrelay-smtp-server:$(date +%s)
+    - name: Semantic Versioning
+  # You may pin to the exact commit or the version.
+      uses: Makepad-fr/semver@0.0.1
+          
