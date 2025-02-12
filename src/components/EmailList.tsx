@@ -3,7 +3,7 @@
 import { format } from 'date-fns';
 import type { Email } from '@/lib/types';
 import clsx from 'clsx';
-import { Trash2, Mail } from 'lucide-react';
+import { Trash2, Mail, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface EmailListProps {
@@ -105,13 +105,20 @@ export function EmailList({ emails, selectedEmailId, onSelectEmail }: EmailListP
               className="flex-1 text-left focus:outline-none px-3"
             >
               <div className="flex justify-between items-baseline mb-1">
-                <h3 className={clsx(
-                  'text-sm',
-                  !email.isRead && 'font-semibold text-gray-900',
-                  email.isRead && 'text-gray-600'
-                )}>
-                  {email.from}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className={clsx(
+                    'text-sm',
+                    !email.isRead && 'font-semibold text-gray-900',
+                    email.isRead && 'text-gray-600'
+                  )}>
+                    {email.from}
+                  </h3>
+                  {email.processedByRules && (
+                    <span title="Processed by rules">
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
                   {format(new Date(email.receivedAt), 'MMM d, h:mm a')}
                 </span>

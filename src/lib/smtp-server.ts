@@ -334,6 +334,8 @@ async function processEmailRules(parsedEmail: any) {
       where: { isActive: true }
     });
 
+    let wasProcessed = false;
+
     for (const rule of rules) {
       // A rule matches if ANY of its condition groups match (implicit OR between groups)
       const ruleMatches = rule.conditionGroups.some(group => 
@@ -341,6 +343,7 @@ async function processEmailRules(parsedEmail: any) {
       );
 
       if (ruleMatches) {
+        wasProcessed = true;
         const { type, config } = rule.action;
 
         switch (type) {
@@ -392,6 +395,14 @@ async function processEmailRules(parsedEmail: any) {
             break;
         }
       }
+    }
+
+    // Update the email's processed status if any rules matched
+    if (wasProcessed) {
+      await prisma.email.update({
+        where: { id: parsedEmail.id },
+        data: { processedByRules: true }
+      });
     }
   } catch (error) {
     console.error('Error processing email rules:', error);

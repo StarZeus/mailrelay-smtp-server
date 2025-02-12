@@ -2,13 +2,17 @@
 
 import { format } from 'date-fns';
 import type { Email } from '@/lib/types';
-import { Reply, Forward, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Reply, Forward, MoreHorizontal, Trash2, Filter } from 'lucide-react';
+import { useState } from 'react';
+import { RuleForm } from '@/components/RuleForm';
 
 interface EmailViewerProps {
   email: Email | null;
 }
 
 export function EmailViewer({ email }: EmailViewerProps) {
+  const [isRuleFormOpen, setIsRuleFormOpen] = useState(false);
+
   const handleDelete = async () => {
     if (!email) return;
 
@@ -33,6 +37,10 @@ export function EmailViewer({ email }: EmailViewerProps) {
     }
   };
 
+  const handleCreateRule = () => {
+    setIsRuleFormOpen(true);
+  };
+
   if (!email) {
     return (
       <div className="h-full flex items-center justify-center text-gray-500 bg-gray-50">
@@ -40,6 +48,26 @@ export function EmailViewer({ email }: EmailViewerProps) {
       </div>
     );
   }
+
+  // Create a prefilled rule based on the email
+  const prefilledRule = email ? {
+    name: `Rule for ${email.from}`,
+    isActive: true,
+    conditionGroups: [{
+      operator: 'AND' as const,
+      conditions: [{
+        type: 'from',
+        operator: 'equals',
+        value: email.from
+      }]
+    }],
+    action: {
+      type: 'forward',
+      config: {
+        forwardTo: ''
+      }
+    }
+  } : null;
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -52,6 +80,13 @@ export function EmailViewer({ email }: EmailViewerProps) {
         <button className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md transition-colors">
           <Forward className="w-4 h-4 mr-1.5" />
           Forward
+        </button>
+        <button
+          onClick={handleCreateRule}
+          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+        >
+          <Filter className="w-4 h-4 mr-1.5" />
+          Create Rule
         </button>
         <div className="h-5 w-px bg-gray-300 mx-1" />
         <button 
@@ -104,6 +139,19 @@ export function EmailViewer({ email }: EmailViewerProps) {
           </div>
         </div>
       </div>
+
+      {/* Rule Form Modal */}
+      {isRuleFormOpen && (
+        <RuleForm
+          rule={null}
+          prefilledRule={prefilledRule}
+          onClose={() => setIsRuleFormOpen(false)}
+          onSubmit={() => {
+            setIsRuleFormOpen(false);
+            // No need to refresh since this is just creating a rule
+          }}
+        />
+      )}
     </div>
   );
 } 

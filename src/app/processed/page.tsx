@@ -17,9 +17,17 @@ import { Search } from 'lucide-react';
 async function getProcessedEmails(): Promise<Email[]> {
   const response = await fetch('/api/emails/processed');
   if (!response.ok) {
-    throw new Error('Failed to fetch processed emails');
+    const contentType = response.headers.get('content-type');
+    const errorData = contentType?.includes('application/json') 
+      ? await response.json()
+      : { error: 'Unknown error occurred' };
+    throw new Error(errorData.error || 'Failed to fetch processed emails');
   }
-  return response.json();
+  const data = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error('Invalid response format');
+  }
+  return data;
 }
 
 export default function ProcessedEmails() {
@@ -43,6 +51,7 @@ export default function ProcessedEmails() {
       });
     } catch (error) {
       console.error('Error fetching processed emails:', error);
+      setEmails([]); // Set empty array on error
     } finally {
       if (isInitialLoad) {
         setIsLoading(false);

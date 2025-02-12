@@ -20,8 +20,11 @@ const CodeMirror = dynamic(
 
 interface RuleFormProps {
   rule?: EmailRule | null;
+  prefilledRule?: EmailRule | null;
   onClose: () => void;
   onSubmit: () => void;
+  onActionTypeChange?: (type: RuleActionType) => void;
+  showInPanel?: boolean;
 }
 
 const CONDITION_TYPES: { value: RuleConditionType; label: string }[] = [
@@ -127,18 +130,24 @@ interface FormData {
   };
 }
 
-export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
-  const initialConditions: ImportedRuleCondition[] = rule?.conditionGroups?.[0]?.conditions || [{ 
-    type: 'from', 
-    operator: 'contains', 
-    value: '' 
-  }];
+export function RuleForm({ 
+  rule, 
+  prefilledRule, 
+  onClose, 
+  onSubmit,
+  onActionTypeChange,
+  showInPanel = false 
+}: RuleFormProps) {
+  const initialConditions: ImportedRuleCondition[] = 
+    rule?.conditionGroups?.[0]?.conditions || 
+    prefilledRule?.conditionGroups?.[0]?.conditions || 
+    [{ type: 'from', operator: 'contains', value: '' }];
 
   const [formData, setFormData] = useState<FormData>({
-    name: rule?.name || '',
-    isActive: rule?.isActive ?? true,
+    name: rule?.name || prefilledRule?.name || '',
+    isActive: rule?.isActive ?? prefilledRule?.isActive ?? true,
     conditions: initialConditions,
-    action: rule?.action || { type: 'forward', config: { forwardTo: '' } }
+    action: rule?.action || prefilledRule?.action || { type: 'forward', config: { forwardTo: '' } }
   });
 
   const handleAddCondition = () => {
@@ -299,9 +308,10 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
           ? { webhookUrl: '' }
           : type === 'kafka'
           ? { kafkaTopic: '', kafkaBroker: '' }
-          : { code: '' }
+          : { code: defaultJavaScriptCode }
       }
     }));
+    onActionTypeChange?.(type);
   };
 
   const renderActionConfig = () => {
@@ -320,6 +330,8 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
             }))}
             placeholder="Forward to email address"
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+            title="Please enter a valid email address"
             required
           />
         );
@@ -336,8 +348,10 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
                 config: { webhookUrl: e.target.value }
               }
             }))}
-            placeholder="Webhook URL"
+            placeholder="Webhook URL (e.g., https://example.com/webhook)"
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            pattern="https?:\/\/.+"
+            title="Please enter a valid URL starting with http:// or https://"
             required
           />
         );
@@ -358,8 +372,10 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
                   }
                 }
               }))}
-              placeholder="Kafka Topic"
+              placeholder="Kafka Topic (e.g., my-topic)"
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              pattern="[a-zA-Z0-9._-]+"
+              title="Topic name can only contain alphanumeric characters, dots, underscores, and hyphens"
               required
             />
             <input
@@ -377,6 +393,8 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
               }))}
               placeholder="Kafka Broker (e.g., localhost:9092)"
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              pattern="[a-zA-Z0-9\.\-]+:[0-9]+"
+              title="Please enter a valid broker address in the format host:port"
               required
             />
           </div>
@@ -443,6 +461,45 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
     e.preventDefault();
     
     try {
+      // Validate email address for forward action
+      if (formData.action.type === 'forward') {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.action.config.forwardTo || '')) {
+          alert('Please enter a valid email address for forwarding');
+          return;
+        }
+      }
+
+      // Validate webhook URL
+      if (formData.action.type === 'webhook') {
+        try {
+          new URL(formData.action.config.webhookUrl || '');
+        } catch (error) {
+          alert('Please enter a valid webhook URL (e.g., https://example.com/webhook)');
+          return;
+        }
+      }
+
+      // Validate Kafka broker and topic
+      if (formData.action.type === 'kafka') {
+        const kafkaBroker = formData.action.config.kafkaBroker || '';
+        const kafkaTopic = formData.action.config.kafkaTopic || '';
+
+        // Validate broker format (host:port)
+        const brokerRegex = /^[a-zA-Z0-9.-]+:\d+$/;
+        if (!brokerRegex.test(kafkaBroker)) {
+          alert('Please enter a valid Kafka broker address (e.g., localhost:9092)');
+          return;
+        }
+
+        // Validate topic name (alphanumeric, dots, underscores, and hyphens)
+        const topicRegex = /^[a-zA-Z0-9._-]+$/;
+        if (!topicRegex.test(kafkaTopic)) {
+          alert('Please enter a valid Kafka topic name (alphanumeric characters, dots, underscores, and hyphens only)');
+          return;
+        }
+      }
+
       // Ensure we have at least one condition
       const conditions = formData.conditions.length > 0 
         ? formData.conditions 
@@ -481,6 +538,123 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
     }
   };
 
+  const formContent = (
+    <form onSubmit={handleSubmit} className="p-6">
+      <div className="space-y-6">
+        {/* Rule Name */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">
+            Rule Name
+          </label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            required
+          />
+        </div>
+
+        {/* Conditions */}
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Conditions
+            </label>
+            <button
+              type="button"
+              onClick={handleAddCondition}
+              className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Add Condition
+            </button>
+          </div>
+          <div className="space-y-3">
+            {formData.conditions?.map((condition, index) => (
+              <div key={index} className="flex gap-3 items-start">
+                <select
+                  value={condition.type}
+                  onChange={e => handleConditionChange(index, 'type', e.target.value as RuleConditionType)}
+                  className="block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                >
+                  {CONDITION_TYPES.map(type => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={condition.operator}
+                  onChange={e => handleConditionChange(index, 'operator', e.target.value)}
+                  className="block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                >
+                  {getOperatorsForCondition(condition.type).map(op => (
+                    <option key={op.value} value={op.value}>
+                      {op.label}
+                    </option>
+                  ))}
+                </select>
+                {renderValueInput(condition, index)}
+                {formData.conditions!.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveCondition(index)}
+                    className="p-2 text-gray-400 hover:text-red-500"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Action */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Action
+          </label>
+          <div className="space-y-3">
+            <select
+              value={formData.action?.type}
+              onChange={e => handleActionTypeChange(e.target.value as RuleActionType)}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            >
+              {ACTION_TYPES.map(type => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+
+            {renderActionConfig()}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        >
+          {rule ? 'Update Rule' : 'Create Rule'}
+        </button>
+      </div>
+    </form>
+  );
+
+  if (showInPanel) {
+    return formContent;
+  }
+
   return (
     <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -495,117 +669,7 @@ export function RuleForm({ rule, onClose, onSubmit }: RuleFormProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="space-y-6">
-            {/* Rule Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Rule Name
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                required
-              />
-            </div>
-
-            {/* Conditions */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Conditions
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAddCondition}
-                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Condition
-                </button>
-              </div>
-              <div className="space-y-3">
-                {formData.conditions?.map((condition, index) => (
-                  <div key={index} className="flex gap-3 items-start">
-                    <select
-                      value={condition.type}
-                      onChange={e => handleConditionChange(index, 'type', e.target.value as RuleConditionType)}
-                      className="block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    >
-                      {CONDITION_TYPES.map(type => (
-                        <option key={type.value} value={type.value}>
-                          {type.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={condition.operator}
-                      onChange={e => handleConditionChange(index, 'operator', e.target.value)}
-                      className="block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    >
-                      {getOperatorsForCondition(condition.type).map(op => (
-                        <option key={op.value} value={op.value}>
-                          {op.label}
-                        </option>
-                      ))}
-                    </select>
-                    {renderValueInput(condition, index)}
-                    {formData.conditions!.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCondition(index)}
-                        className="p-2 text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Action */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Action
-              </label>
-              <div className="space-y-3">
-                <select
-                  value={formData.action?.type}
-                  onChange={e => handleActionTypeChange(e.target.value as RuleActionType)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                >
-                  {ACTION_TYPES.map(type => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-
-                {renderActionConfig()}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              {rule ? 'Update Rule' : 'Create Rule'}
-            </button>
-          </div>
-        </form>
+        {formContent}
       </div>
     </div>
   );

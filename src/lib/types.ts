@@ -9,6 +9,7 @@ export interface Email {
   headers: any | null;
   receivedAt: Date;
   isRead: boolean;
+  processedByRules: boolean;
 }
 
 export type RuleConditionType = 
