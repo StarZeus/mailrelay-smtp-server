@@ -21,6 +21,7 @@ jobs:
 
   docker-build-tag-push:
     runs-on: ubuntu-latest
+    needs: semver
     name: Docker Build, Tag & Publish
     steps:
       - name: Checkout
