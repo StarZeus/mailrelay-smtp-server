@@ -14,31 +14,26 @@ import {
 } from 'react-resizable-panels';
 import { Search } from 'lucide-react';
 
-async function getEmails(): Promise<Email[]> {
-  const response = await fetch('/api/emails');
+async function getProcessedEmails(): Promise<Email[]> {
+  const response = await fetch('/api/emails/processed');
   if (!response.ok) {
-    throw new Error('Failed to fetch emails');
+    throw new Error('Failed to fetch processed emails');
   }
   return response.json();
 }
 
-const POLLING_INTERVAL = 3000; // Poll every 3 seconds
-
-export default function Home() {
+export default function ProcessedEmails() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const unreadCount = emails.filter(email => !email.isRead).length;
 
   const fetchEmails = useCallback(async (isInitialLoad = false) => {
     try {
       if (isInitialLoad) {
         setIsLoading(true);
       }
-      const data = await getEmails();
-      
-      // Only update if there are changes
+      const data = await getProcessedEmails();
       setEmails(prevEmails => {
         if (prevEmails.length !== data.length || 
             JSON.stringify(prevEmails) !== JSON.stringify(data)) {
@@ -47,7 +42,7 @@ export default function Home() {
         return prevEmails;
       });
     } catch (error) {
-      console.error('Error fetching emails:', error);
+      console.error('Error fetching processed emails:', error);
     } finally {
       if (isInitialLoad) {
         setIsLoading(false);
@@ -55,48 +50,13 @@ export default function Home() {
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
     fetchEmails(true);
   }, [fetchEmails]);
 
-  // Set up polling
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      fetchEmails(false);
-    }, POLLING_INTERVAL);
-
-    return () => clearInterval(intervalId);
-  }, [fetchEmails]);
-
-  const handleSelectEmail = async (email: Email) => {
-    if (!email.isRead) {
-      try {
-        await fetch('/api/emails/mark-read', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emailId: email.id }),
-        });
-        
-        setEmails(emails.map(e => 
-          e.id === email.id ? { ...e, isRead: true } : e
-        ));
-      } catch (error) {
-        console.error('Error marking email as read:', error);
-      }
-    }
+  const handleSelectEmail = (email: Email) => {
     setSelectedEmail(email);
   };
-
-  // Update selected email when emails are updated
-  useEffect(() => {
-    if (selectedEmail) {
-      const updatedEmail = emails.find(e => e.id === selectedEmail.id);
-      if (updatedEmail && JSON.stringify(updatedEmail) !== JSON.stringify(selectedEmail)) {
-        setSelectedEmail(updatedEmail);
-      }
-    }
-  }, [emails, selectedEmail]);
 
   const filteredEmails = emails.filter(email => {
     const searchLower = searchQuery.toLowerCase();
@@ -120,7 +80,7 @@ export default function Home() {
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search emails..."
+                    placeholder="Search processed emails..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-1.5 text-sm bg-gray-100 border border-transparent rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
@@ -130,11 +90,6 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-3">
                 <RefreshButton onClick={fetchEmails} />
-                {unreadCount > 0 && (
-                  <span className="text-sm font-medium text-blue-600">
-                    {unreadCount} unread
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -160,11 +115,11 @@ export default function Home() {
                 ) : filteredEmails.length === 0 ? (
                   <div className="text-center py-12">
                     <p className="text-gray-500">
-                      {searchQuery ? 'No emails match your search' : 'No emails yet'}
+                      {searchQuery ? 'No emails match your search' : 'No processed emails yet'}
                     </p>
                     {!searchQuery && (
                       <p className="text-sm text-gray-400 mt-1">
-                        Send an email to localhost:2525 to see it appear here
+                        Emails processed by rules will appear here
                       </p>
                     )}
                   </div>
@@ -189,4 +144,4 @@ export default function Home() {
       </div>
     </main>
   );
-}
+} 

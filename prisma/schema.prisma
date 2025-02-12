@@ -11,16 +11,17 @@ datasource db {
 }
 
 model Email {
-  id          Int      @id @default(autoincrement())
-  from        String
-  to          String   // Comma-separated list of recipients
-  subject     String?
-  text        String?
-  html        String?
-  attachments Json?
-  headers     Json?
-  receivedAt  DateTime @default(now())
-  isRead      Boolean  @default(false)
+  id              Int      @id @default(autoincrement())
+  from            String
+  to              String   // Comma-separated list of recipients
+  subject         String?
+  text            String?
+  html            String?
+  attachments     Json?
+  headers         Json?
+  receivedAt      DateTime @default(now())
+  isRead          Boolean  @default(false)
+  processedByRules Boolean @default(false)
 }
 
 model EmailRule {
