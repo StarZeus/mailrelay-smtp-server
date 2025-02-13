@@ -1,11 +1,4 @@
-require('@babel/register')({
-  presets: [
-    ['@babel/preset-typescript', { allowNamespaces: true }]
-  ],
-  extensions: ['.ts', '.tsx'],
-});
-
-const { createSMTPServer } = require('./src/lib/smtp-server');
+import { createSMTPServer } from '@/lib/smtp-server';
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);

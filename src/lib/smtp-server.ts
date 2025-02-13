@@ -1,16 +1,17 @@
-const SMTPServer = require('smtp-server').SMTPServer;
-const { simpleParser } = require('mailparser');
-const { PrismaClient } = require('@prisma/client');
-const nodemailer = require('nodemailer');
-const { Kafka } = require('kafkajs');
-const axios = require('axios');
-const ivm = require('isolated-vm');
+'use server';
+
+import { SMTPServer } from 'smtp-server';
+import { simpleParser, ParsedMail, AddressObject, HeaderValue, Attachment } from 'mailparser';
+import prisma from '@/lib/prisma';
+import nodemailer from 'nodemailer';
+import type { Attachment as NodemailerAttachment } from 'nodemailer/lib/mailer';
+import { Kafka } from 'kafkajs';
+import axios from 'axios';
+import { Isolate, Reference } from 'isolated-vm';
+import type { JavaScriptActionResult, RuleCondition, RuleConditionGroup, Email, RuleActionType } from './types';
 
 // Type definitions
-/** @type {import('kafkajs').Kafka | null} */
-let kafka = null;
-
-const prisma = new PrismaClient();
+let kafka: Kafka | null = null;
 
 // Create a reusable transporter object for email forwarding
 const transporter = nodemailer.createTransport({
@@ -25,6 +26,26 @@ if (process.env.KAFKA_BROKERS) {
     clientId: 'email-rules',
     brokers: process.env.KAFKA_BROKERS.split(','),
   });
+}
+
+// Helper function to safely get email address
+function getEmailAddress(address: AddressObject | AddressObject[] | undefined): string {
+  if (!address) return '';
+  if (Array.isArray(address)) {
+    return address.map(a => a.text).join(', ');
+  }
+  return address.text || '';
+}
+
+// Helper function to convert mailparser attachment to nodemailer attachment
+function convertAttachment(att: Attachment): NodemailerAttachment {
+  return {
+    filename: att.filename,
+    content: att.content,
+    contentType: att.contentType,
+    contentDisposition: 'attachment',
+    cid: att.cid
+  };
 }
 
 /**
@@ -45,7 +66,7 @@ if (process.env.KAFKA_BROKERS) {
  * @param {RuleCondition} condition
  * @param {any} parsedEmail
  */
-function evaluateCondition(condition, parsedEmail) {
+function evaluateCondition(condition: RuleCondition, parsedEmail: ParsedMail & { receivedAt: Date }): boolean {
   const { type, operator, value, value2 } = condition;
 
   switch (type) {
@@ -54,10 +75,10 @@ function evaluateCondition(condition, parsedEmail) {
     case 'subject':
     case 'content': {
       const emailValue = {
-        from: parsedEmail.from.text,
-        to: parsedEmail.to.text,
-        subject: parsedEmail.subject,
-        content: parsedEmail.text
+        from: (parsedEmail.from as AddressObject)?.text || '',
+        to: (parsedEmail.to as AddressObject)?.text || '',
+        subject: parsedEmail.subject || '',
+        content: parsedEmail.text || ''
       }[type]?.toLowerCase() || '';
       const testValue = value.toLowerCase();
 
@@ -90,8 +111,8 @@ function evaluateCondition(condition, parsedEmail) {
       if (!parsedEmail.attachments?.length) return false;
       const testValue = value.toLowerCase();
       const attachmentNames = parsedEmail.attachments
-        .map((att: any) => att.filename?.toLowerCase())
-        .filter(Boolean);
+        .map((att) => att.filename?.toLowerCase())
+        .filter((name): name is string => typeof name === 'string');
 
       switch (operator) {
         case 'contains': return attachmentNames.some(name => name.includes(testValue));
@@ -111,7 +132,10 @@ function evaluateCondition(condition, parsedEmail) {
     }
 
     case 'emailSize': {
-      const size = parsedEmail.size || 0; // in bytes
+      const size = Buffer.byteLength(parsedEmail.text || '') + 
+                   Buffer.byteLength(parsedEmail.html?.toString() || '') +
+                   (parsedEmail.attachments?.reduce((acc, att) => 
+                     acc + (att.size || 0), 0) || 0);
       const testSize = parseInt(value);
       const testSize2 = value2 ? parseInt(value2) : null;
 
@@ -124,8 +148,9 @@ function evaluateCondition(condition, parsedEmail) {
     }
 
     case 'priority': {
-      const priority = parsedEmail.headers?.['x-priority'] || 
-                      parsedEmail.headers?.['importance'] || 
+      const headers = parsedEmail.headers as unknown as Map<string, HeaderValue>;
+      const priority = headers.get('x-priority')?.toString() || 
+                      headers.get('importance')?.toString() || 
                       'normal';
       
       const normalizedPriority = priority.toLowerCase();
@@ -133,7 +158,7 @@ function evaluateCondition(condition, parsedEmail) {
     }
 
     case 'receivedDate': {
-      const emailDate = new Date(parsedEmail.date);
+      const emailDate = new Date(parsedEmail.receivedAt);
       const testDate = new Date(value);
       const testDate2 = value2 ? new Date(value2) : null;
 
@@ -147,8 +172,8 @@ function evaluateCondition(condition, parsedEmail) {
     }
 
     case 'receivedTime': {
-      const emailHour = new Date(parsedEmail.date).getHours();
-      const emailMinute = new Date(parsedEmail.date).getMinutes();
+      const emailHour = new Date(parsedEmail.receivedAt).getHours();
+      const emailMinute = new Date(parsedEmail.receivedAt).getMinutes();
       const [testHour, testMinute] = value.split(':').map(Number);
       const emailTime = emailHour * 60 + emailMinute;
       const testTime = testHour * 60 + testMinute;
@@ -162,12 +187,13 @@ function evaluateCondition(condition, parsedEmail) {
     }
 
     case 'dayOfWeek': {
-      const emailDay = new Date(parsedEmail.date).getDay().toString();
+      const emailDay = new Date(parsedEmail.receivedAt).getDay().toString();
       return emailDay === value;
     }
 
     case 'headerField': {
-      const headerExists = value in parsedEmail.headers;
+      const headers = parsedEmail.headers as unknown as Map<string, HeaderValue>;
+      const headerExists = headers.has(value);
       return operator === 'exists' ? headerExists : !headerExists;
     }
   }
@@ -179,13 +205,13 @@ function evaluateCondition(condition, parsedEmail) {
  * @param {RuleConditionGroup} group
  * @param {any} parsedEmail
  */
-function evaluateConditionGroup(group, parsedEmail) {
+function evaluateConditionGroup(group: RuleConditionGroup, parsedEmail: ParsedMail & { receivedAt: Date }): boolean {
   if (group.operator === 'AND') {
-    return group.conditions.every(condition => 
+    return group.conditions.every((condition: RuleCondition) => 
       evaluateCondition(condition, parsedEmail)
     );
   } else { // OR
-    return group.conditions.some(condition => 
+    return group.conditions.some((condition: RuleCondition) => 
       evaluateCondition(condition, parsedEmail)
     );
   }
@@ -193,27 +219,31 @@ function evaluateConditionGroup(group, parsedEmail) {
 
 // Execute JavaScript code in an isolated environment
 async function executeJavaScript(code: string, email: any): Promise<JavaScriptActionResult> {
-  // Create a new isolate
-  const isolate = new ivm.Isolate({ memoryLimit: 128 });
+  const isolate = new Isolate({ memoryLimit: 128 });
 
   try {
-    // Create a new context within the isolate
     const context = await isolate.createContext();
-
-    // Create a jail
     const jail = context.global;
     await jail.set('global', jail.derefInto());
 
+    // Create references for console functions
+    const logCallback = new Reference((...args: any[]) => 
+      console.log('JavaScript Action:', ...args)
+    );
+    const errorCallback = new Reference((...args: any[]) => 
+      console.error('JavaScript Action Error:', ...args)
+    );
+
     // Add console.log functionality
+    await jail.set('$log', logCallback);
+    await jail.set('$error', errorCallback);
+
     await context.eval(`
       const console = {
-        log: (...args) => { $0.applySync(undefined, args); },
-        error: (...args) => { $1.applySync(undefined, args); }
+        log: (...args) => $log.apply(undefined, args),
+        error: (...args) => $error.apply(undefined, args)
       };
-    `, [
-      (...args: any[]) => console.log('JavaScript Action:', ...args),
-      (...args: any[]) => console.error('JavaScript Action Error:', ...args)
-    ]);
+    `);
 
     // Inject the email object
     await context.global.set('email', {
@@ -248,7 +278,6 @@ async function executeJavaScript(code: string, email: any): Promise<JavaScriptAc
     console.error('Error executing JavaScript action:', error);
     return {};
   } finally {
-    // Dispose the isolate
     isolate.dispose();
   }
 }
@@ -276,12 +305,12 @@ async function processJavaScriptResult(result: JavaScriptActionResult, parsedEma
     // Handle forwarding
     if (result.forward) {
       await transporter.sendMail({
-        from: parsedEmail.from.text,
+        from: getEmailAddress(parsedEmail.from),
         to: result.forward.to,
         subject: result.forward.subject || parsedEmail.subject,
         text: result.forward.text || parsedEmail.text,
         html: result.forward.html || parsedEmail.html,
-        attachments: parsedEmail.attachments
+        attachments: parsedEmail.attachments?.map(convertAttachment)
       });
     }
 
@@ -293,8 +322,8 @@ async function processJavaScriptResult(result: JavaScriptActionResult, parsedEma
         url,
         headers,
         data: body || {
-          from: parsedEmail.from.text,
-          to: parsedEmail.to.text,
+          from: getEmailAddress(parsedEmail.from),
+          to: getEmailAddress(parsedEmail.to),
           subject: parsedEmail.subject,
           text: parsedEmail.text,
           html: parsedEmail.html,
@@ -311,8 +340,8 @@ async function processJavaScriptResult(result: JavaScriptActionResult, parsedEma
         topic: result.kafka.topic,
         messages: [{
           value: JSON.stringify(result.kafka.message || {
-            from: parsedEmail.from.text,
-            to: parsedEmail.to.text,
+            from: getEmailAddress(parsedEmail.from),
+            to: getEmailAddress(parsedEmail.to),
             subject: parsedEmail.subject,
             text: parsedEmail.text,
             html: parsedEmail.html,
@@ -327,7 +356,12 @@ async function processJavaScriptResult(result: JavaScriptActionResult, parsedEma
   }
 }
 
-async function processEmailRules(parsedEmail: any) {
+interface ProcessableEmail extends ParsedMail {
+  id?: number;
+  receivedAt: Date;
+}
+
+async function processEmailRules(parsedEmail: ProcessableEmail) {
   try {
     // Fetch all active rules
     const rules = await prisma.emailRule.findMany({
@@ -337,25 +371,25 @@ async function processEmailRules(parsedEmail: any) {
     let wasProcessed = false;
 
     for (const rule of rules) {
-      // A rule matches if ANY of its condition groups match (implicit OR between groups)
-      const ruleMatches = rule.conditionGroups.some(group => 
+      const conditions = rule.conditions as unknown as RuleConditionGroup[];
+      const ruleMatches = conditions?.some(group => 
         evaluateConditionGroup(group, parsedEmail)
       );
 
       if (ruleMatches) {
         wasProcessed = true;
-        const { type, config } = rule.action;
+        const { type, config } = rule.action as { type: RuleActionType; config: any };
 
         switch (type) {
           case 'forward':
             if (config.forwardTo) {
               await transporter.sendMail({
-                from: parsedEmail.from.text,
+                from: getEmailAddress(parsedEmail.from),
                 to: config.forwardTo,
-                subject: parsedEmail.subject,
-                text: parsedEmail.text,
-                html: parsedEmail.html,
-                attachments: parsedEmail.attachments
+                subject: parsedEmail.subject || '',
+                text: parsedEmail.text || '',
+                html: parsedEmail.html || undefined,
+                attachments: parsedEmail.attachments?.map(convertAttachment)
               });
             }
             break;
@@ -363,11 +397,11 @@ async function processEmailRules(parsedEmail: any) {
           case 'webhook':
             if (config.webhookUrl) {
               await axios.post(config.webhookUrl, {
-                from: parsedEmail.from.text,
-                to: parsedEmail.to.text,
-                subject: parsedEmail.subject,
-                text: parsedEmail.text,
-                html: parsedEmail.html,
+                from: getEmailAddress(parsedEmail.from),
+                to: getEmailAddress(parsedEmail.to),
+                subject: parsedEmail.subject || '',
+                text: parsedEmail.text || '',
+                html: parsedEmail.html || null,
                 receivedAt: new Date()
               });
             }
@@ -381,8 +415,8 @@ async function processEmailRules(parsedEmail: any) {
                 topic: config.kafkaTopic,
                 messages: [{
                   value: JSON.stringify({
-                    from: parsedEmail.from.text,
-                    to: parsedEmail.to.text,
+                    from: getEmailAddress(parsedEmail.from),
+                    to: getEmailAddress(parsedEmail.to),
                     subject: parsedEmail.subject,
                     text: parsedEmail.text,
                     html: parsedEmail.html,
@@ -398,7 +432,7 @@ async function processEmailRules(parsedEmail: any) {
     }
 
     // Update the email's processed status if any rules matched
-    if (wasProcessed) {
+    if (wasProcessed && parsedEmail.id) {
       await prisma.email.update({
         where: { id: parsedEmail.id },
         data: { processedByRules: true }
@@ -436,24 +470,22 @@ function createSMTPServer(port = 2525) {
           const parsed = await simpleParser(buffer);
           
           // Store in database
-          await prisma.email.create({
+          const email = await prisma.email.create({
             data: {
-              from: parsed.from?.text || '',
-              to: Array.isArray(parsed.to) 
-                ? parsed.to.map(t => t.text).join(', ')
-                : parsed.to?.text || '',
-              subject: parsed.subject,
-              text: parsed.text,
+              from: getEmailAddress(parsed.from),
+              to: getEmailAddress(parsed.to),
+              subject: parsed.subject || '',
+              text: parsed.text || '',
               html: parsed.html || null,
-              attachments: parsed.attachments,
-              headers: parsed.headers,
+              attachments: JSON.stringify(parsed.attachments || []),
+              headers: JSON.stringify(Object.fromEntries(parsed.headers || new Map())),
             },
           });
 
           console.log('Email stored in database');
 
           // Process email rules
-          await processEmailRules(parsed);
+          await processEmailRules({ ...parsed, id: email.id, receivedAt: new Date() });
 
           console.log('Email rules processed');
           callback();
@@ -496,8 +528,8 @@ function createSMTPServer(port = 2525) {
   return server;
 }
 
-// Export functions using CommonJS
-module.exports = {
+// Export functions using ES Modules
+export {
   createSMTPServer,
   evaluateCondition,
   evaluateConditionGroup

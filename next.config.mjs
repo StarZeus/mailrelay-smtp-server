@@ -32,6 +32,17 @@ const nextConfig = {
       },
     ];
   },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Don't bundle server-only modules on client-side
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        'isolated-vm': false,
+        'smtp-server': false,
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

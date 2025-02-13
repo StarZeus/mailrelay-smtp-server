@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"next dev\" \"node server.js\"",
+    "dev": "concurrently \"next dev\" \"ts-node -r tsconfig-paths/register --project tsconfig.server.json server.ts\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "smtp": "node server.js"
+    "smtp": "ts-node -r tsconfig-paths/register --project tsconfig.server.json server.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.2",
@@ -27,7 +27,9 @@
     "react": "^18",
     "react-dom": "^18",
     "react-resizable-panels": "^2.1.7",
-    "smtp-server": "^3.13.3"
+    "smtp-server": "^3.13.3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

@@ -19,6 +19,7 @@ model Email {
   html            String?
   attachments     Json?
   headers         Json?
+  size            Int      @default(0)  // Size in bytes
   receivedAt      DateTime @default(now())
   isRead          Boolean  @default(false)
   processedByRules Boolean @default(false)
