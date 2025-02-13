@@ -7,7 +7,7 @@ import { RuleForm } from '@/components/RuleForm';
 import { RuleTestModal } from '@/components/RuleTestModal';
 import { Logo } from '@/app/components/Logo';
 import { Navigation } from '@/app/components/Navigation';
-import dynamic from 'next/dynamic';
+import nextDynamic from 'next/dynamic';
 import {
   Panel,
   PanelGroup,
@@ -16,7 +16,7 @@ import {
 import clsx from 'clsx';
 
 // Dynamically import CodeMirror with no SSR
-const CodeMirror = dynamic(
+const CodeMirror = nextDynamic(
   async () => {
     const { default: CodeMirrorComponent } = await import('@uiw/react-codemirror');
     const { javascript } = await import('@codemirror/lang-javascript');
@@ -42,7 +42,9 @@ return {
   }
 };`;
 
-export default function RulesPage() {
+export const dynamic = 'force-dynamic';
+
+export default function Rules() {
   const [rules, setRules] = useState<EmailRule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);

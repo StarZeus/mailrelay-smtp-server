@@ -51,22 +51,24 @@ export function EmailViewer({ email }: EmailViewerProps) {
 
   // Create a prefilled rule based on the email
   const prefilledRule = email ? {
-    name: `Rule for ${email.from}`,
+    id: 0,
+    name: `Rule for ${email.subject}`,
     isActive: true,
     conditionGroups: [{
-      operator: 'AND' as const,
+      operator: "AND" as const,
       conditions: [{
-        type: 'from',
-        operator: 'equals',
-        value: email.from
-      }]
+        type: "from" as const,
+        operator: "equals" as const,
+        value: email.from,
+      }],
     }],
     action: {
-      type: 'forward',
+      type: "forward" as const,
       config: {
-        forwardTo: ''
-      }
-    }
+        forwardTo: "",
+      },
+    },
+    createdAt: new Date(),
   } : null;
 
   return (

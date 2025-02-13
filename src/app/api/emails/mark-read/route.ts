@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 
 const prisma = new PrismaClient();
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const { emailId } = await request.json();

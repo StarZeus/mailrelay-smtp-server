@@ -1,4 +1,4 @@
-import { createSMTPServer } from '@/lib/smtp-server';
+import { createSMTPServer } from './server/smtp-server';
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);

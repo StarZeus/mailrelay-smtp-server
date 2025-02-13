@@ -1,6 +1,6 @@
-'use server';
+export const dynamic = 'force-dynamic';
 
-import { evaluateCondition, evaluateConditionGroup } from '@/lib/smtp-server';
+import { evaluateConditionGroup } from '@/lib/rule-evaluator';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 

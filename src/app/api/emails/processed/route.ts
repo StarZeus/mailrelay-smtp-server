@@ -14,6 +14,8 @@ if (process.env.NODE_ENV === 'production') {
   prisma = (global as any).prisma;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     // Test database connection

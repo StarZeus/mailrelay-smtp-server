@@ -15,6 +15,8 @@ if (process.env.NODE_ENV === 'production') {
   prisma = (global as any).prisma;
 }
 
+export const dynamic = 'force-dynamic';
+
 // Get all rules
 export async function GET() {
   try {

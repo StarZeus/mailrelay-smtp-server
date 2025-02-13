@@ -24,6 +24,8 @@ async function getEmails(): Promise<Email[]> {
 
 const POLLING_INTERVAL = 3000; // Poll every 3 seconds
 
+export const dynamic = 'force-dynamic';
+
 export default function Home() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
