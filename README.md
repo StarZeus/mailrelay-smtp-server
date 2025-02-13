@@ -183,7 +183,6 @@ npx prisma migrate dev
 # Start development servers
 npm run dev
 ```
-vkirub   
 
 ## Contributing
 

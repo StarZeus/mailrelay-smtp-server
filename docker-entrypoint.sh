@@ -2,15 +2,15 @@
 set -e
 
 # Print server configuration
-echo "Starting servers with configuration:"
+echo "Starting MailRelay SMTP Server v$(node -p "require('./package.json').version")"
+echo "----------------------------------------"
+echo "Configuration:"
 echo "Web UI: ${NEXT_PUBLIC_HOST:-0.0.0.0}:${PORT:-3000}"
 echo "SMTP: ${SMTP_HOST:-0.0.0.0}:${SMTP_PORT:-2525}"
+echo "Database: ${DATABASE_URL}"
+echo "----------------------------------------"
 
-# Ensure data directory exists and has correct permissions
-mkdir -p /app/data
-chown -R nextjs:nodejs /app/data
-
-# Run database migrations
+# Run database migrations if needed
 echo "Running database migrations..."
 npx prisma migrate deploy
 

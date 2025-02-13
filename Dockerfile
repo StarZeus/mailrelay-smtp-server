@@ -55,8 +55,12 @@ RUN apt-get update && \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Create user and group first
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs && \
+    # Create data directory and set permissions
+    mkdir -p /app/data && \
+    chown -R nextjs:nodejs /app
 
 # Copy necessary files
 COPY --from=builder /app/public ./public
@@ -78,9 +82,12 @@ RUN npm ci --only=production
 # Initialize the database
 RUN npx prisma generate
 
-# Create database directory and set permissions
-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh && \
+    chown nextjs:nodejs /app/docker-entrypoint.sh
 
+# Switch to non-root user
 USER nextjs
 
 # Initialize database after switching to nextjs user
@@ -93,10 +100,6 @@ ARG SMTP_PORT=2525
 # Expose ports using ARG values
 EXPOSE ${PORT}
 EXPOSE ${SMTP_PORT}
-
-# Copy and set up entrypoint script
-COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
 
 # Use the entrypoint script
 ENTRYPOINT ["/app/docker-entrypoint.sh"] 
