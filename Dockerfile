@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies only when needed
 FROM base AS deps
-RUN apt-get update && apt-get install -y libc6
+RUN apt-get update && apt-get install -y libc6 openssl
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -27,6 +27,10 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATABASE_URL="file:/app/prisma/dev.db"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y openssl
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
@@ -46,9 +50,14 @@ RUN npm ci --only=production
 
 # Initialize the database
 RUN npx prisma generate
-RUN npx prisma migrate deploy
+
+# Create database directory and set permissions
+RUN mkdir -p /app/prisma && chown -R nextjs:nodejs /app/prisma
 
 USER nextjs
+
+# Initialize database after switching to nextjs user
+RUN npx prisma migrate deploy
 
 EXPOSE 3000
 EXPOSE 2525
