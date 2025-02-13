@@ -1,8 +1,7 @@
 {
-  "name": "template-2",
+  "name": "mailrelay-smtp-server",
   "version": "0.1.0",
   "private": true,
-  "type": "module" ,
   "scripts": {
     "dev": "concurrently \"next dev\" \"node server.js\"",
     "build": "next build",
