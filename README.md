@@ -1,5 +1,13 @@
 # MailRelay SMTP Server
 
+[![Docker Build](https://github.com/starzeus/mailrelay-smtp-server/actions/workflows/docker-image.yml/badge.svg)](https://github.com/starzeus/mailrelay-smtp-server/actions/workflows/docker-image.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node Version](https://img.shields.io/badge/node-20.x-brightgreen.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-14.x-black.svg)](https://nextjs.org/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/starzeus/mailrelay-smtp-server.svg)](https://hub.docker.com/r/starzeus/mailrelay-smtp-server)
+[![Docker Image Size](https://img.shields.io/docker/image-size/starzeus/mailrelay-smtp-server/latest)](https://hub.docker.com/r/starzeus/mailrelay-smtp-server)
+
 A modern, feature-rich SMTP server with a beautiful web UI for managing and processing emails based on customizable rules.
 
 ## Features
@@ -78,7 +86,7 @@ DEBUG="smtp*"                      # Enable SMTP server debugging
 
 ```bash
 # Pull the image
-docker pull ${{ secrets.DOCKER_USERNAME }}/mailrelay-smtp-server:latest
+docker pull starzeus/mailrelay-smtp-server:latest
 
 # Run with environment variables
 docker run -d \
@@ -171,7 +179,7 @@ FORWARD_SMTP_SECURE=true
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/mailrelay-smtp-server.git
+git clone https://github.com/starzeus/mailrelay-smtp-server.git
 
 # Install dependencies
 npm install
