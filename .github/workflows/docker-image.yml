@@ -10,11 +10,12 @@ jobs:
   semver:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - id: stepV
-        uses: musyoka-morris/action-next-semver@stable
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@master
+    - name: Bump version and push tag
+      id: stepV
+      uses: darioblanco/bump-semver@v1.0.0
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       version: ${{ steps.stepV.outputs.version }}          
 
