@@ -4,6 +4,11 @@ import { useState, useCallback } from 'react';
 import type { EmailRule, RuleConditionType, RuleActionType, RuleOperator, RuleCondition as ImportedRuleCondition } from '@/lib/types';
 import { X, Plus, Trash2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle
+} from 'react-resizable-panels';
 
 // Dynamically import CodeMirror with no SSR
 const CodeMirror = dynamic(
@@ -219,7 +224,7 @@ export function RuleForm({
     if (operatorType === 'day') {
       return (
         <select
-          className="form-select"
+          className="block w-1/4 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
           value={condition.value}
           onChange={(e) => handleConditionChange(index, 'value', e.target.value)}
         >
@@ -240,7 +245,7 @@ export function RuleForm({
             type="date"
             value={condition.value}
             onChange={e => handleConditionChange(index, 'value', e.target.value)}
-            className="block w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-1/3 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
             required
           />
           {condition.operator === 'between' && (
@@ -248,7 +253,7 @@ export function RuleForm({
               type="date"
               value={condition.value2 || ''}
               onChange={e => handleConditionChange(index, 'value2', e.target.value)}
-              className="block w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-1/3 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
               required
             />
           )}
@@ -262,7 +267,7 @@ export function RuleForm({
           type="time"
           value={condition.value}
           onChange={e => handleConditionChange(index, 'value', e.target.value)}
-          className="block w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          className="block w-1/3 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
           required
         />
       );
@@ -275,7 +280,7 @@ export function RuleForm({
           value={condition.value}
           onChange={e => handleConditionChange(index, 'value', e.target.value)}
           placeholder="Header field name (e.g., X-Priority)"
-          className="block w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          className="block w-1/3 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
           required
         />
       );
@@ -287,7 +292,7 @@ export function RuleForm({
         value={condition.value}
         onChange={e => handleConditionChange(index, 'value', e.target.value)}
         placeholder="Value"
-        className="block w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+        className="block w-1/3 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
         required
       />
     );
@@ -298,20 +303,36 @@ export function RuleForm({
   };
 
   const handleActionTypeChange = (type: RuleActionType) => {
+    let newConfig;
+    console.log('handleActionTypeChange', type);
+    switch (type) {
+      case 'forward':
+        newConfig = { forwardTo: '' };
+        break;
+      case 'webhook':
+        newConfig = { webhookUrl: '' };
+        break;
+      case 'kafka':
+        newConfig = { kafkaTopic: '', kafkaBroker: '' };
+        break;
+      case 'javascript':
+        newConfig = { code: defaultJavaScriptCode };
+        break;
+      default:
+        newConfig = {};
+    }
+
     setFormData(prev => ({
       ...prev,
       action: {
         type,
-        config: type === 'forward'
-          ? { forwardTo: '' }
-          : type === 'webhook'
-          ? { webhookUrl: '' }
-          : type === 'kafka'
-          ? { kafkaTopic: '', kafkaBroker: '' }
-          : { code: defaultJavaScriptCode }
+        config: newConfig
       }
     }));
-    onActionTypeChange?.(type);
+
+    if (onActionTypeChange) {
+      onActionTypeChange(type);
+    }
   };
 
   const renderActionConfig = () => {
@@ -329,7 +350,7 @@ export function RuleForm({
               }
             }))}
             placeholder="Forward to email address"
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
             pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
             title="Please enter a valid email address"
             required
@@ -349,7 +370,7 @@ export function RuleForm({
               }
             }))}
             placeholder="Webhook URL (e.g., https://example.com/webhook)"
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
             pattern="https?:\/\/.+"
             title="Please enter a valid URL starting with http:// or https://"
             required
@@ -373,7 +394,7 @@ export function RuleForm({
                 }
               }))}
               placeholder="Kafka Topic (e.g., my-topic)"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
               pattern="[a-zA-Z0-9._-]+"
               title="Topic name can only contain alphanumeric characters, dots, underscores, and hyphens"
               required
@@ -392,7 +413,7 @@ export function RuleForm({
                 }
               }))}
               placeholder="Kafka Broker (e.g., localhost:9092)"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
               pattern="[a-zA-Z0-9\.\-]+:[0-9]+"
               title="Please enter a valid broker address in the format host:port"
               required
@@ -550,7 +571,7 @@ export function RuleForm({
             type="text"
             value={formData.name}
             onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
             required
           />
         </div>
@@ -576,7 +597,7 @@ export function RuleForm({
                 <select
                   value={condition.type}
                   onChange={e => handleConditionChange(index, 'type', e.target.value as RuleConditionType)}
-                  className="block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="block w-1/4 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
                 >
                   {CONDITION_TYPES.map(type => (
                     <option key={type.value} value={type.value}>
@@ -587,7 +608,7 @@ export function RuleForm({
                 <select
                   value={condition.operator}
                   onChange={e => handleConditionChange(index, 'operator', e.target.value)}
-                  className="block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="block w-1/4 pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
                 >
                   {getOperatorsForCondition(condition.type).map(op => (
                     <option key={op.value} value={op.value}>
@@ -619,7 +640,8 @@ export function RuleForm({
             <select
               value={formData.action?.type}
               onChange={e => handleActionTypeChange(e.target.value as RuleActionType)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full pl-3 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-colors"
+              onBlur={e => handleActionTypeChange(e.target.value as RuleActionType)}
             >
               {ACTION_TYPES.map(type => (
                 <option key={type.value} value={type.value}>
@@ -652,6 +674,31 @@ export function RuleForm({
   );
 
   if (showInPanel) {
+    if (formData.action.type === 'javascript') {
+      return (
+        <PanelGroup direction="vertical">
+          <Panel>
+            <div className="h-full overflow-auto">
+              {formContent}
+            </div>
+          </Panel>
+          <PanelResizeHandle className="h-1 bg-gray-200 hover:bg-blue-500 transition-colors cursor-row-resize" />
+          <Panel defaultSize={40}>
+            <div className="h-full bg-gray-50 p-4">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">JavaScript Preview</h3>
+              <div className="h-full border rounded-md overflow-hidden bg-white">
+                <CodeMirror
+                  value={defaultJavaScriptCode}
+                  height="100%"
+                  theme="light"
+                  readOnly
+                />
+              </div>
+            </div>
+          </Panel>
+        </PanelGroup>
+      );
+    }
     return formContent;
   }
 
@@ -675,50 +722,75 @@ export function RuleForm({
   );
 }
 
-const defaultJavaScriptCode = `// Example: Modify email subject and forward to another address
-return {
-  modifiedEmail: {
-    subject: \`[Processed] \${email.subject}\`,
-    headers: {
-      'X-Processed': 'true'
-    }
-  },
-  forward: {
-    to: 'another@example.com',
-    subject: 'Forwarded email'
+const defaultJavaScriptCode = `// Example: Process an email with multiple actions
+// You can return any combination of actions: forward, webhook, kafka
+
+// Access email content as JSON if HTML is present
+const emailContentJson = email.html ? JSON.stringify({
+  title: email.subject,
+  content: email.html,
+  timestamp: new Date(),
+  metadata: {
+    from: email.from,
+    to: email.to,
+    headers: email.headers
+  }
+}) : null;
+
+// 1. Modify the email and forward it
+const modifiedEmail = {
+  subject: \`[Processed] \${email.subject}\`,
+  headers: {
+    'X-Processed': 'true',
+    'X-Process-Date': new Date().toISOString()
   }
 };
 
-// Example: Send to webhook if email has attachments
-if (email.attachments?.length > 0) {
-  return {
-    webhook: {
-      url: 'https://api.example.com/process',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: {
-        subject: email.subject,
-        attachmentCount: email.attachments.length
-      }
-    }
-  };
-}
+// 2. Forward to another address
+const forwardAction = {
+  to: 'another@example.com',
+  subject: 'Important: ' + email.subject,
+  // You can override the email content if needed
+  text: \`Original From: \${email.from}\\n\\n\${email.text}\`
+};
 
-// Example: Send specific emails to Kafka
-if (email.subject.includes('URGENT')) {
-  return {
-    kafka: {
-      topic: 'urgent-emails',
-      message: {
-        from: email.from,
-        subject: email.subject,
-        priority: 'high'
-      }
-    }
-  };
-}
+// 3. Send to webhook for external processing
+const webhookAction = {
+  url: 'https://api.example.com/process',
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'your-api-key'
+  },
+  body: {
+    from: email.from,
+    subject: email.subject,
+    hasAttachments: email.attachments?.length > 0,
+    processedAt: new Date(),
+    contentJson: emailContentJson // Include parsed HTML content if available
+  }
+};
 
-// Return empty object for no action
-return {};`; 
+// 4. Send to Kafka for event streaming
+const kafkaAction = {
+  topic: 'email-events',
+  message: {
+    type: 'email_received',
+    from: email.from,
+    subject: email.subject,
+    timestamp: new Date(),
+    metadata: {
+      hasAttachments: email.attachments?.length > 0,
+      headers: email.headers,
+      contentJson: emailContentJson // Include parsed HTML content if available
+    }
+  }
+};
+
+// Return all actions
+return {
+  modifiedEmail,
+  forward: forwardAction,
+  webhook: webhookAction,
+  kafka: kafkaAction
+};`; 

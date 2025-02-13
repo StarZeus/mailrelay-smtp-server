@@ -198,35 +198,55 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
       where: { isActive: true }
     });
 
-    let wasProcessed = false;
+    console.log(`Processing ${rules.length} active rules for email:`, parsedEmail.id);
 
     for (const rule of rules) {
-      const conditions = rule.conditions as unknown as RuleConditionGroup[];
-      const ruleMatches = conditions?.some(group => 
+      const conditionGroups = (typeof rule.conditionGroups === 'string'
+        ? JSON.parse(rule.conditionGroups)
+        : rule.conditionGroups) as RuleConditionGroup[];
+
+      const ruleMatches = conditionGroups?.some(group => 
         evaluateConditionGroup(group, parsedEmail)
       );
 
-      if (ruleMatches) {
-        wasProcessed = true;
-        const { type, config } = rule.action as { type: RuleActionType; config: any };
+      console.log(`Rule "${rule.name}" (${rule.id}) matches:`, ruleMatches);
 
-        switch (type) {
+      if (ruleMatches) {
+        // Update email with rule information immediately
+        await prisma.email.update({
+          where: { id: parsedEmail.id },
+          data: {
+            processedByRules: true,
+            processedByRuleId: rule.id,
+            processedByRuleName: rule.name
+          }
+        });
+
+        console.log(`Updated email ${parsedEmail.id} with rule "${rule.name}" (${rule.id})`);
+
+        const action = typeof rule.action === 'string'
+          ? JSON.parse(rule.action)
+          : rule.action;
+
+        // Process the rule action
+        switch (action.type) {
           case 'forward':
-            if (config.forwardTo) {
+            if (action.config.forwardTo) {
               await transporter.sendMail({
                 from: getEmailAddress(parsedEmail.from),
-                to: config.forwardTo,
+                to: action.config.forwardTo,
                 subject: parsedEmail.subject || '',
                 text: parsedEmail.text || '',
                 html: parsedEmail.html || undefined,
                 attachments: parsedEmail.attachments?.map(convertAttachment)
               });
+              console.log(`Forwarded email to ${action.config.forwardTo}`);
             }
             break;
 
           case 'webhook':
-            if (config.webhookUrl) {
-              await axios.post(config.webhookUrl, {
+            if (action.config.webhookUrl) {
+              await axios.post(action.config.webhookUrl, {
                 from: getEmailAddress(parsedEmail.from),
                 to: getEmailAddress(parsedEmail.to),
                 subject: parsedEmail.subject || '',
@@ -234,15 +254,16 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
                 html: parsedEmail.html || null,
                 receivedAt: new Date()
               });
+              console.log(`Sent webhook to ${action.config.webhookUrl}`);
             }
             break;
 
           case 'kafka':
-            if (kafka && config.kafkaTopic) {
+            if (kafka && action.config.kafkaTopic) {
               const producer = kafka.producer();
               await producer.connect();
               await producer.send({
-                topic: config.kafkaTopic,
+                topic: action.config.kafkaTopic,
                 messages: [{
                   value: JSON.stringify({
                     from: getEmailAddress(parsedEmail.from),
@@ -255,21 +276,30 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
                 }]
               });
               await producer.disconnect();
+              console.log(`Sent message to Kafka topic ${action.config.kafkaTopic}`);
             }
             break;
         }
+
+        // Return after processing the first matching rule
+        return;
       }
     }
 
-    // Update the email's processed status if any rules matched
-    if (wasProcessed && parsedEmail.id) {
-      await prisma.email.update({
-        where: { id: parsedEmail.id },
-        data: { processedByRules: true }
-      });
-    }
+    // If no rules matched, ensure the email is marked as processed but with no rule
+    await prisma.email.update({
+      where: { id: parsedEmail.id },
+      data: {
+        processedByRules: false,
+        processedByRuleId: null,
+        processedByRuleName: null
+      }
+    });
+    console.log(`Email ${parsedEmail.id} was not matched by any rules`);
+
   } catch (error) {
     console.error('Error processing email rules:', error);
+    throw error; // Rethrow to handle in the caller
   }
 }
 

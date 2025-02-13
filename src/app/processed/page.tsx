@@ -15,6 +15,7 @@ import {
   PanelResizeHandle
 } from 'react-resizable-panels';
 import { Search } from 'lucide-react';
+import ProcessedEmailsAccordion from '@/components/ProcessedEmailsAccordion';
 
 async function getProcessedEmails(): Promise<Email[]> {
   const response = await fetch('/api/emails/processed');
@@ -135,7 +136,7 @@ export default function ProcessedEmails() {
                     )}
                   </div>
                 ) : (
-                  <EmailList
+                  <ProcessedEmailsAccordion
                     emails={filteredEmails}
                     selectedEmailId={selectedEmail?.id ?? null}
                     onSelectEmail={handleSelectEmail}

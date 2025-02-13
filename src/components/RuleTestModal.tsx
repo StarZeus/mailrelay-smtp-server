@@ -50,26 +50,44 @@ export function RuleTestModal({ rule, onClose }: RuleTestModalProps) {
   });
   const [results, setResults] = useState<TestResults | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [matches, setMatches] = useState<boolean | null>(null);
 
   const handleTest = async () => {
-    setIsLoading(true);
     try {
+      setTesting(true);
+      setError(null);
+      
       const response = await fetch('/api/rules/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ruleId: rule.id,
-          sampleEmail
+          email: {
+            from: sampleEmail.from,
+            to: sampleEmail.to,
+            subject: sampleEmail.subject,
+            text: sampleEmail.text,
+            html: sampleEmail.text,
+            headers: {},
+            attachments: []
+          },
+          conditionGroups: rule.conditionGroups
         })
       });
 
-      if (!response.ok) throw new Error('Failed to test rule');
-      const data = await response.json();
-      setResults(data);
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to test rule');
+      }
+
+      const { matches } = await response.json();
+      setMatches(matches);
     } catch (error) {
       console.error('Error testing rule:', error);
+      setError(error instanceof Error ? error.message : 'Failed to test rule');
     } finally {
-      setIsLoading(false);
+      setTesting(false);
     }
   };
 

@@ -9,15 +9,21 @@ import { Kafka } from 'kafkajs';
 import axios from 'axios';
 import { Isolate, Reference } from 'isolated-vm';
 import type { JavaScriptActionResult, RuleCondition, RuleConditionGroup, Email, RuleActionType } from './types';
+import { evaluateCondition, evaluateConditionGroup } from './rule-evaluator';
 
 // Type definitions
 let kafka: Kafka | null = null;
 
-// Create a reusable transporter object for email forwarding
+// Create reusable transporter object for email forwarding
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'localhost',
-  port: parseInt(process.env.SMTP_PORT || '25'),
+  port: parseInt(process.env.SMTP_PORT || '2525'),
   secure: false,
+  tls: {
+    rejectUnauthorized: false
+  },
+  debug: true,
+  logger: true
 });
 
 // Initialize Kafka client if configured
@@ -48,314 +54,6 @@ function convertAttachment(att: Attachment): NodemailerAttachment {
   };
 }
 
-/**
- * @typedef {Object} RuleCondition
- * @property {string} type
- * @property {string} operator
- * @property {string} value
- * @property {string} [value2]
- */
-
-/**
- * @typedef {Object} RuleConditionGroup
- * @property {'AND' | 'OR'} operator
- * @property {RuleCondition[]} conditions
- */
-
-/**
- * @param {RuleCondition} condition
- * @param {any} parsedEmail
- */
-function evaluateCondition(condition: RuleCondition, parsedEmail: ParsedMail & { receivedAt: Date }): boolean {
-  const { type, operator, value, value2 } = condition;
-
-  switch (type) {
-    case 'from':
-    case 'to':
-    case 'subject':
-    case 'content': {
-      const emailValue = {
-        from: (parsedEmail.from as AddressObject)?.text || '',
-        to: (parsedEmail.to as AddressObject)?.text || '',
-        subject: parsedEmail.subject || '',
-        content: parsedEmail.text || ''
-      }[type]?.toLowerCase() || '';
-      const testValue = value.toLowerCase();
-
-      switch (operator) {
-        case 'contains': return emailValue.includes(testValue);
-        case 'notContains': return !emailValue.includes(testValue);
-        case 'equals': return emailValue === testValue;
-        case 'notEquals': return emailValue !== testValue;
-        case 'startsWith': return emailValue.startsWith(testValue);
-        case 'endsWith': return emailValue.endsWith(testValue);
-        case 'matches':
-          try {
-            const regex = new RegExp(testValue);
-            return regex.test(emailValue);
-          } catch (error) {
-            console.error('Invalid regex pattern:', error);
-            return false;
-          }
-      }
-      break;
-    }
-
-    case 'hasAttachment': {
-      const hasAttachments = Array.isArray(parsedEmail.attachments) && 
-        parsedEmail.attachments.length > 0;
-      return operator === 'true' ? hasAttachments : !hasAttachments;
-    }
-
-    case 'attachmentName': {
-      if (!parsedEmail.attachments?.length) return false;
-      const testValue = value.toLowerCase();
-      const attachmentNames = parsedEmail.attachments
-        .map((att) => att.filename?.toLowerCase())
-        .filter((name): name is string => typeof name === 'string');
-
-      switch (operator) {
-        case 'contains': return attachmentNames.some(name => name.includes(testValue));
-        case 'notContains': return !attachmentNames.some(name => name.includes(testValue));
-        case 'equals': return attachmentNames.some(name => name === testValue);
-        case 'notEquals': return !attachmentNames.some(name => name === testValue);
-        case 'matches':
-          try {
-            const regex = new RegExp(testValue);
-            return attachmentNames.some(name => regex.test(name));
-          } catch (error) {
-            console.error('Invalid regex pattern:', error);
-            return false;
-          }
-      }
-      break;
-    }
-
-    case 'emailSize': {
-      const size = Buffer.byteLength(parsedEmail.text || '') + 
-                   Buffer.byteLength(parsedEmail.html?.toString() || '') +
-                   (parsedEmail.attachments?.reduce((acc, att) => 
-                     acc + (att.size || 0), 0) || 0);
-      const testSize = parseInt(value);
-      const testSize2 = value2 ? parseInt(value2) : null;
-
-      switch (operator) {
-        case 'greaterThan': return size > testSize;
-        case 'lessThan': return size < testSize;
-        case 'inRange': return testSize2 ? size >= testSize && size <= testSize2 : false;
-      }
-      break;
-    }
-
-    case 'priority': {
-      const headers = parsedEmail.headers as unknown as Map<string, HeaderValue>;
-      const priority = headers.get('x-priority')?.toString() || 
-                      headers.get('importance')?.toString() || 
-                      'normal';
-      
-      const normalizedPriority = priority.toLowerCase();
-      return normalizedPriority === operator;
-    }
-
-    case 'receivedDate': {
-      const emailDate = new Date(parsedEmail.receivedAt);
-      const testDate = new Date(value);
-      const testDate2 = value2 ? new Date(value2) : null;
-
-      switch (operator) {
-        case 'before': return emailDate < testDate;
-        case 'after': return emailDate > testDate;
-        case 'between': return testDate2 ? 
-          emailDate > testDate && emailDate < testDate2 : false;
-      }
-      break;
-    }
-
-    case 'receivedTime': {
-      const emailHour = new Date(parsedEmail.receivedAt).getHours();
-      const emailMinute = new Date(parsedEmail.receivedAt).getMinutes();
-      const [testHour, testMinute] = value.split(':').map(Number);
-      const emailTime = emailHour * 60 + emailMinute;
-      const testTime = testHour * 60 + testMinute;
-
-      switch (operator) {
-        case 'before': return emailTime < testTime;
-        case 'after': return emailTime > testTime;
-        case 'equals': return emailTime === testTime;
-      }
-      break;
-    }
-
-    case 'dayOfWeek': {
-      const emailDay = new Date(parsedEmail.receivedAt).getDay().toString();
-      return emailDay === value;
-    }
-
-    case 'headerField': {
-      const headers = parsedEmail.headers as unknown as Map<string, HeaderValue>;
-      const headerExists = headers.has(value);
-      return operator === 'exists' ? headerExists : !headerExists;
-    }
-  }
-
-  return false;
-}
-
-/**
- * @param {RuleConditionGroup} group
- * @param {any} parsedEmail
- */
-function evaluateConditionGroup(group: RuleConditionGroup, parsedEmail: ParsedMail & { receivedAt: Date }): boolean {
-  if (group.operator === 'AND') {
-    return group.conditions.every((condition: RuleCondition) => 
-      evaluateCondition(condition, parsedEmail)
-    );
-  } else { // OR
-    return group.conditions.some((condition: RuleCondition) => 
-      evaluateCondition(condition, parsedEmail)
-    );
-  }
-}
-
-// Execute JavaScript code in an isolated environment
-async function executeJavaScript(code: string, email: any): Promise<JavaScriptActionResult> {
-  const isolate = new Isolate({ memoryLimit: 128 });
-
-  try {
-    const context = await isolate.createContext();
-    const jail = context.global;
-    await jail.set('global', jail.derefInto());
-
-    // Create references for console functions
-    const logCallback = new Reference((...args: any[]) => 
-      console.log('JavaScript Action:', ...args)
-    );
-    const errorCallback = new Reference((...args: any[]) => 
-      console.error('JavaScript Action Error:', ...args)
-    );
-
-    // Add console.log functionality
-    await jail.set('$log', logCallback);
-    await jail.set('$error', errorCallback);
-
-    await context.eval(`
-      const console = {
-        log: (...args) => $log.apply(undefined, args),
-        error: (...args) => $error.apply(undefined, args)
-      };
-    `);
-
-    // Inject the email object
-    await context.global.set('email', {
-      from: email.from.text,
-      to: email.to.text,
-      subject: email.subject,
-      text: email.text,
-      html: email.html,
-      headers: email.headers,
-      attachments: email.attachments,
-      date: email.date
-    });
-
-    // Create the async wrapper
-    const wrappedCode = `
-      (async function() {
-        try {
-          ${code}
-        } catch (error) {
-          console.error(error.message);
-          return {};
-        }
-      })()
-    `;
-
-    // Run the code with a timeout
-    const script = await isolate.compileScript(wrappedCode);
-    const result = await script.run(context, { timeout: 1000 });
-    
-    return result?.copy() || {};
-  } catch (error) {
-    console.error('Error executing JavaScript action:', error);
-    return {};
-  } finally {
-    isolate.dispose();
-  }
-}
-
-// Process JavaScript action result
-async function processJavaScriptResult(result: JavaScriptActionResult, parsedEmail: any) {
-  try {
-    // Handle email modifications
-    if (result.modifiedEmail) {
-      Object.assign(parsedEmail, {
-        subject: result.modifiedEmail.subject ?? parsedEmail.subject,
-        text: result.modifiedEmail.text ?? parsedEmail.text,
-        html: result.modifiedEmail.html ?? parsedEmail.html,
-        headers: {
-          ...parsedEmail.headers,
-          ...result.modifiedEmail.headers
-        }
-      });
-
-      if (result.modifiedEmail.to) {
-        parsedEmail.to = { text: result.modifiedEmail.to.join(', ') };
-      }
-    }
-
-    // Handle forwarding
-    if (result.forward) {
-      await transporter.sendMail({
-        from: getEmailAddress(parsedEmail.from),
-        to: result.forward.to,
-        subject: result.forward.subject || parsedEmail.subject,
-        text: result.forward.text || parsedEmail.text,
-        html: result.forward.html || parsedEmail.html,
-        attachments: parsedEmail.attachments?.map(convertAttachment)
-      });
-    }
-
-    // Handle webhook
-    if (result.webhook) {
-      const { url, method = 'POST', headers = {}, body } = result.webhook;
-      await axios({
-        method,
-        url,
-        headers,
-        data: body || {
-          from: getEmailAddress(parsedEmail.from),
-          to: getEmailAddress(parsedEmail.to),
-          subject: parsedEmail.subject,
-          text: parsedEmail.text,
-          html: parsedEmail.html,
-          receivedAt: new Date()
-        }
-      });
-    }
-
-    // Handle Kafka
-    if (result.kafka && kafka) {
-      const producer = kafka.producer();
-      await producer.connect();
-      await producer.send({
-        topic: result.kafka.topic,
-        messages: [{
-          value: JSON.stringify(result.kafka.message || {
-            from: getEmailAddress(parsedEmail.from),
-            to: getEmailAddress(parsedEmail.to),
-            subject: parsedEmail.subject,
-            text: parsedEmail.text,
-            html: parsedEmail.html,
-            receivedAt: new Date()
-          })
-        }]
-      });
-      await producer.disconnect();
-    }
-  } catch (error) {
-    console.error('Error processing JavaScript action result:', error);
-  }
-}
-
 interface ProcessableEmail extends ParsedMail {
   id?: number;
   receivedAt: Date;
@@ -368,35 +66,55 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
       where: { isActive: true }
     });
 
-    let wasProcessed = false;
+    console.log(`Processing ${rules.length} active rules for email:`, parsedEmail.id);
 
     for (const rule of rules) {
-      const conditions = rule.conditions as unknown as RuleConditionGroup[];
-      const ruleMatches = conditions?.some(group => 
+      const conditionGroups = (typeof rule.conditionGroups === 'string'
+        ? JSON.parse(rule.conditionGroups)
+        : rule.conditionGroups) as RuleConditionGroup[];
+
+      const ruleMatches = conditionGroups?.some(group => 
         evaluateConditionGroup(group, parsedEmail)
       );
 
-      if (ruleMatches) {
-        wasProcessed = true;
-        const { type, config } = rule.action as { type: RuleActionType; config: any };
+      console.log(`Rule "${rule.name}" (${rule.id}) matches:`, ruleMatches);
 
-        switch (type) {
+      if (ruleMatches) {
+        // Update email with rule information immediately
+        await prisma.email.update({
+          where: { id: parsedEmail.id },
+          data: {
+            processedByRules: true,
+            processedByRuleId: rule.id,
+            processedByRuleName: rule.name
+          }
+        });
+
+        console.log(`Updated email ${parsedEmail.id} with rule "${rule.name}" (${rule.id})`);
+
+        const action = typeof rule.action === 'string'
+          ? JSON.parse(rule.action)
+          : rule.action;
+
+        // Process the rule action
+        switch (action.type) {
           case 'forward':
-            if (config.forwardTo) {
+            if (action.config.forwardTo) {
               await transporter.sendMail({
                 from: getEmailAddress(parsedEmail.from),
-                to: config.forwardTo,
+                to: action.config.forwardTo,
                 subject: parsedEmail.subject || '',
                 text: parsedEmail.text || '',
                 html: parsedEmail.html || undefined,
                 attachments: parsedEmail.attachments?.map(convertAttachment)
               });
+              console.log(`Forwarded email to ${action.config.forwardTo}`);
             }
             break;
 
           case 'webhook':
-            if (config.webhookUrl) {
-              await axios.post(config.webhookUrl, {
+            if (action.config.webhookUrl) {
+              await axios.post(action.config.webhookUrl, {
                 from: getEmailAddress(parsedEmail.from),
                 to: getEmailAddress(parsedEmail.to),
                 subject: parsedEmail.subject || '',
@@ -404,15 +122,16 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
                 html: parsedEmail.html || null,
                 receivedAt: new Date()
               });
+              console.log(`Sent webhook to ${action.config.webhookUrl}`);
             }
             break;
 
           case 'kafka':
-            if (kafka && config.kafkaTopic) {
+            if (kafka && action.config.kafkaTopic) {
               const producer = kafka.producer();
               await producer.connect();
               await producer.send({
-                topic: config.kafkaTopic,
+                topic: action.config.kafkaTopic,
                 messages: [{
                   value: JSON.stringify({
                     from: getEmailAddress(parsedEmail.from),
@@ -425,21 +144,30 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
                 }]
               });
               await producer.disconnect();
+              console.log(`Sent message to Kafka topic ${action.config.kafkaTopic}`);
             }
             break;
         }
+
+        // Return after processing the first matching rule
+        return;
       }
     }
 
-    // Update the email's processed status if any rules matched
-    if (wasProcessed && parsedEmail.id) {
-      await prisma.email.update({
-        where: { id: parsedEmail.id },
-        data: { processedByRules: true }
-      });
-    }
+    // If no rules matched, mark the email as processed but with no rule
+    await prisma.email.update({
+      where: { id: parsedEmail.id },
+      data: {
+        processedByRules: false,
+        processedByRuleId: null,
+        processedByRuleName: null
+      }
+    });
+    console.log(`Email ${parsedEmail.id} was not matched by any rules`);
+
   } catch (error) {
     console.error('Error processing email rules:', error);
+    throw error; // Rethrow to handle in the caller
   }
 }
 
@@ -447,7 +175,7 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
  * Creates and starts an SMTP server
  * @param {number} port - The port to listen on
  */
-function createSMTPServer(port = 2525) {
+export function createSMTPServer(port = 2525) {
   console.log('Creating SMTP server on port:', port);
   
   const server = new SMTPServer({
@@ -479,13 +207,19 @@ function createSMTPServer(port = 2525) {
               html: parsed.html || null,
               attachments: JSON.stringify(parsed.attachments || []),
               headers: JSON.stringify(Object.fromEntries(parsed.headers || new Map())),
+              size: Buffer.byteLength(buffer),
+              processedByRules: false,
             },
           });
 
-          console.log('Email stored in database');
+          console.log('Email stored in database with ID:', email.id);
 
           // Process email rules
-          await processEmailRules({ ...parsed, id: email.id, receivedAt: new Date() });
+          await processEmailRules({ 
+            ...parsed, 
+            id: email.id,
+            receivedAt: new Date()
+          });
 
           console.log('Email rules processed');
           callback();
@@ -526,11 +260,4 @@ function createSMTPServer(port = 2525) {
   }
 
   return server;
-}
-
-// Export functions using ES Modules
-export {
-  createSMTPServer,
-  evaluateCondition,
-  evaluateConditionGroup
-}; 
+} 

@@ -1,19 +1,6 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-import type { EmailRule } from '@/lib/types';
-
-// Initialize Prisma Client
-let prisma: PrismaClient;
-
-if (process.env.NODE_ENV === 'production') {
-  prisma = new PrismaClient();
-} else {
-  // In development, prevent multiple instances of Prisma Client
-  if (!(global as any).prisma) {
-    (global as any).prisma = new PrismaClient();
-  }
-  prisma = (global as any).prisma;
-}
+import prisma from '@/lib/prisma';
+import type { EmailRule, RuleConditionGroup } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,30 +22,45 @@ export async function GET() {
     console.log('Found rules:', rules.length);
 
     // Transform the rules to match our frontend type
-    const transformedRules = rules.map((rule: { id: number; name: string; isActive: boolean; conditions: any; action: any; createdAt: Date }) => {
+    const transformedRules = rules.map((rule: { 
+      id: number; 
+      name: string; 
+      isActive: boolean; 
+      conditionGroups: any; 
+      action: any; 
+      createdAt: Date; 
+    }) => {
       try {
-        // Ensure conditions is an array
-        const conditions = rule.conditions || [];
-        if (!Array.isArray(conditions)) {
-          console.warn(`Invalid conditions format for rule ${rule.id}:`, rule.conditions);
+        const parsedGroups = (typeof rule.conditionGroups === 'string' 
+          ? JSON.parse(rule.conditionGroups) 
+          : rule.conditionGroups) as unknown as RuleConditionGroup[];
+
+        const parsedAction = (typeof rule.action === 'string'
+          ? JSON.parse(rule.action)
+          : rule.action);
+
+        if (!Array.isArray(parsedGroups)) {
+          console.warn(`Invalid conditionGroups format for rule ${rule.id}:`, rule.conditionGroups);
           return {
             id: rule.id,
             name: rule.name,
             isActive: rule.isActive,
             conditionGroups: [],
-            action: rule.action,
+            action: parsedAction,
             createdAt: rule.createdAt
           };
         }
 
         return {
-          ...rule,
-          conditionGroups: conditions,
-          conditions: undefined
+          id: rule.id,
+          name: rule.name,
+          isActive: rule.isActive,
+          conditionGroups: parsedGroups,
+          action: parsedAction,
+          createdAt: rule.createdAt
         };
       } catch (transformError) {
         console.error('Error transforming rule:', rule.id, transformError);
-        // Return a minimal valid rule object if transformation fails
         return {
           id: rule.id,
           name: rule.name,
@@ -115,7 +117,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    console.log('Creating rule with data:', data); // Debug log
+    console.log('Creating rule with data:', data);
 
     // Ensure conditionGroups is an array
     if (!Array.isArray(data.conditionGroups)) {
@@ -126,18 +128,25 @@ export async function POST(request: Request) {
       data: {
         name: data.name,
         isActive: data.isActive ?? true,
-        conditions: data.conditionGroups || [], // Store conditionGroups as conditions
-        action: data.action || { type: 'forward', config: {} }
+        conditionGroups: JSON.stringify(data.conditionGroups || []),
+        action: JSON.stringify(data.action || { type: 'forward', config: {} })
       }
     });
 
-    console.log('Created rule:', rule); // Debug log
+    console.log('Created rule:', rule);
 
     // Transform the response
     const transformedRule = {
-      ...rule,
-      conditionGroups: rule.conditions || [],
-      conditions: undefined
+      id: rule.id,
+      name: rule.name,
+      isActive: rule.isActive,
+      conditionGroups: (typeof rule.conditionGroups === 'string' 
+        ? JSON.parse(rule.conditionGroups) 
+        : rule.conditionGroups) as unknown as RuleConditionGroup[],
+      action: typeof rule.action === 'string'
+        ? JSON.parse(rule.action)
+        : rule.action,
+      createdAt: rule.createdAt
     };
 
     return new NextResponse(
@@ -152,12 +161,11 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error creating rule:', error);
     
-    // Return a more detailed error response
     return new NextResponse(
       JSON.stringify({
         error: 'Failed to create rule',
         details: error instanceof Error ? error.message : 'Unknown error',
-        data: error // Include the full error for debugging
+        data: error
       }),
       {
         status: 500,
@@ -178,15 +186,22 @@ export async function PUT(request: Request) {
       data: {
         name: data.name,
         isActive: data.isActive,
-        conditions: data.conditionGroups,
-        action: data.action
+        conditionGroups: JSON.stringify(data.conditionGroups),
+        action: JSON.stringify(data.action)
       }
     });
 
     const transformedRule = {
-      ...rule,
-      conditionGroups: rule.conditions,
-      conditions: undefined
+      id: rule.id,
+      name: rule.name,
+      isActive: rule.isActive,
+      conditionGroups: (typeof rule.conditionGroups === 'string' 
+        ? JSON.parse(rule.conditionGroups) 
+        : rule.conditionGroups) as unknown as RuleConditionGroup[],
+      action: typeof rule.action === 'string'
+        ? JSON.parse(rule.action)
+        : rule.action,
+      createdAt: rule.createdAt
     };
 
     return NextResponse.json(transformedRule);

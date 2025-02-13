@@ -23,13 +23,15 @@ model Email {
   receivedAt      DateTime @default(now())
   isRead          Boolean  @default(false)
   processedByRules Boolean @default(false)
+  processedByRuleId Int?
+  processedByRuleName String?
 }
 
 model EmailRule {
-  id        Int      @id @default(autoincrement())
-  name      String
-  isActive  Boolean  @default(true)
-  conditions Json     // Array of conditions
-  action    Json     // Action configuration
-  createdAt DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  name            String
+  isActive        Boolean  @default(true)
+  conditionGroups Json     // Array of RuleConditionGroup
+  action          Json     // Action configuration
+  createdAt       DateTime @default(now())
 }

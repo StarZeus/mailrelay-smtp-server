@@ -1,15 +1,19 @@
-import type { RuleCondition, RuleConditionGroup } from './types';
+import type { RuleCondition, RuleConditionGroup, Email } from './types';
 import type { ParsedMail, AddressObject } from 'mailparser';
 
-function getEmailAddress(address: AddressObject | AddressObject[] | undefined): string {
+function getEmailAddress(address: AddressObject | AddressObject[] | undefined | string): string {
   if (!address) return '';
+  if (typeof address === 'string') return address;
   if (Array.isArray(address)) {
     return address.map(a => a.text).join(', ');
   }
   return address.text || '';
 }
 
-export function evaluateCondition(condition: RuleCondition, parsedEmail: ParsedMail & { receivedAt: Date }): boolean {
+export function evaluateCondition(
+  condition: RuleCondition, 
+  email: (ParsedMail & { receivedAt: Date }) | Email
+): boolean {
   const { type, operator, value, value2 } = condition;
 
   switch (type) {
@@ -18,10 +22,10 @@ export function evaluateCondition(condition: RuleCondition, parsedEmail: ParsedM
     case 'subject':
     case 'content': {
       const emailValue = {
-        from: getEmailAddress(parsedEmail.from),
-        to: getEmailAddress(parsedEmail.to),
-        subject: parsedEmail.subject || '',
-        content: parsedEmail.text || ''
+        from: getEmailAddress('from' in email ? email.from : ''),
+        to: getEmailAddress('to' in email ? email.to : ''),
+        subject: email.subject || '',
+        content: 'text' in email ? email.text || '' : ''
       }[type]?.toLowerCase() || '';
       const testValue = value.toLowerCase();
 
@@ -50,14 +54,17 @@ export function evaluateCondition(condition: RuleCondition, parsedEmail: ParsedM
   return false;
 }
 
-export function evaluateConditionGroup(group: RuleConditionGroup, parsedEmail: ParsedMail & { receivedAt: Date }): boolean {
+export function evaluateConditionGroup(
+  group: RuleConditionGroup, 
+  email: (ParsedMail & { receivedAt: Date }) | Email
+): boolean {
   if (group.operator === 'AND') {
     return group.conditions.every(condition => 
-      evaluateCondition(condition, parsedEmail)
+      evaluateCondition(condition, email)
     );
   } else { // OR
     return group.conditions.some(condition => 
-      evaluateCondition(condition, parsedEmail)
+      evaluateCondition(condition, email)
     );
   }
 } 

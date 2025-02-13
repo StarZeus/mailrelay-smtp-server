@@ -5,11 +5,14 @@ export interface Email {
   subject: string | null;
   text: string | null;
   html: string | null;
-  attachments: any | null;
-  headers: any | null;
+  attachments: any[] | null;
+  headers: Record<string, any> | null;
+  size: number;
   receivedAt: Date;
   isRead: boolean;
   processedByRules: boolean;
+  processedByRuleId: number | null;
+  processedByRuleName: string | null;
 }
 
 export type RuleConditionType = 
