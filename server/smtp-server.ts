@@ -302,6 +302,8 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
                 console.log(`Sent message to Kafka topic ${action.config.kafkaTopic}`);
               }
               break;
+            default:
+              console.log(`Unknown action type: ${action.type}`);
           }
         } catch (err) {
           const error = err as Error;
@@ -325,9 +327,6 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
             }
           });
         }
-
-        // Return after processing the first matching rule
-        return;
       }
     }
 

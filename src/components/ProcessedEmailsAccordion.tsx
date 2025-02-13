@@ -31,18 +31,18 @@ export default function ProcessedEmailsAccordion({
 }: ProcessedEmailsAccordionProps) {
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
-  // Group emails by rule name
+  // Group emails by rule name, allowing emails to appear under multiple rules
   const emailsByRule = emails.reduce<Record<string, EmailWithProcessing[]>>((acc, email) => {
     const emailWithProcessing = email as EmailWithProcessing;
     
+    // For each rule that processed this email, add the email to that rule's group
     emailWithProcessing.processedRules.forEach(processedRule => {
       const ruleName = processedRule.rule.name;
       if (!acc[ruleName]) {
         acc[ruleName] = [];
       }
-      if (!acc[ruleName].includes(emailWithProcessing)) {
-        acc[ruleName].push(emailWithProcessing);
-      }
+      // Add the email to this rule's group
+      acc[ruleName].push(emailWithProcessing);
     });
     
     return acc;
@@ -90,49 +90,55 @@ export default function ProcessedEmailsAccordion({
 
           {expandedRules.has(ruleName) && (
             <div className="bg-gray-50">
-              {ruleEmails.map((email) => (
-                <button
-                  key={email.id}
-                  onClick={() => onSelectEmail(email)}
-                  className={`w-full px-4 py-3 flex flex-col text-left hover:bg-gray-100 focus:outline-none ${
-                    selectedEmailId === email.id ? 'bg-blue-50' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">
-                      {email.subject || '(No Subject)'}
-                    </span>
-                    <span className="text-sm text-gray-500">
-                      {format(new Date(email.receivedAt), 'MMM d, yyyy h:mm a')}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center text-sm text-gray-500">
-                    <span className="truncate">{email.from}</span>
-                    <span className="mx-1">→</span>
-                    <span className="truncate">{email.to}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {email.processedRules.map((processedRule) => (
-                      <span
-                        key={processedRule.id}
-                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          processedRule.success
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                        title={processedRule.error || undefined}
-                      >
-                        {processedRule.success ? (
-                          <CheckCircle2 className="w-3 h-3 mr-1" />
-                        ) : (
-                          <XCircle className="w-3 h-3 mr-1" />
-                        )}
-                        {format(new Date(processedRule.processedAt), 'h:mm a')}
+              {ruleEmails.map((email) => {
+                // Find the specific rule processing record for this rule
+                const ruleProcessing = email.processedRules.find(
+                  pr => pr.rule.name === ruleName
+                );
+
+                return (
+                  <button
+                    key={`${email.id}-${ruleName}`}
+                    onClick={() => onSelectEmail(email)}
+                    className={`w-full px-4 py-3 flex flex-col text-left hover:bg-gray-100 focus:outline-none ${
+                      selectedEmailId === email.id ? 'bg-blue-50' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900">
+                        {email.subject || '(No Subject)'}
                       </span>
-                    ))}
-                  </div>
-                </button>
-              ))}
+                      <span className="text-sm text-gray-500">
+                        {format(new Date(email.receivedAt), 'MMM d, yyyy h:mm a')}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center text-sm text-gray-500">
+                      <span className="truncate">{email.from}</span>
+                      <span className="mx-1">→</span>
+                      <span className="truncate">{email.to}</span>
+                    </div>
+                    {ruleProcessing && (
+                      <div className="mt-2">
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            ruleProcessing.success
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}
+                          title={ruleProcessing.error || undefined}
+                        >
+                          {ruleProcessing.success ? (
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                          ) : (
+                            <XCircle className="w-3 h-3 mr-1" />
+                          )}
+                          {format(new Date(ruleProcessing.processedAt), 'h:mm a')}
+                        </span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

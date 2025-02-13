@@ -123,6 +123,7 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
     console.log(`Processing ${rules.length} active rules for email:`, parsedEmail.id);
     
     let rulesProcessed = false;
+    let matchedRulesCount = 0;
     const processedRules: { id: number; name: string; success: boolean; error?: string }[] = [];
 
     for (const rule of rules) {
@@ -137,6 +138,7 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
       console.log(`Rule "${rule.name}" (${rule.id}) matches:`, ruleMatches);
 
       if (ruleMatches) {
+        matchedRulesCount++;
         rulesProcessed = true;
         let success = true;
         let error: string | undefined;
@@ -146,9 +148,11 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
             ? JSON.parse(rule.action)
             : rule.action;
 
+          console.log(`Processing rule ${matchedRulesCount} of ${rules.length}: "${rule.name}" with action type:`, action.type);
+
           // Process the rule action
           switch (action.type) {
-            case 'forward':
+            case 'forward': {
               if (action.config.forwardTo) {
                 await transporter.sendMail({
                   from: getEmailAddress(parsedEmail.from),
@@ -160,9 +164,9 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
                 });
                 console.log(`Forwarded email to ${action.config.forwardTo} by rule "${rule.name}"`);
               }
-              break;
+            } break;
 
-            case 'webhook':
+            case 'webhook': {
               if (action.config.webhookUrl) {
                 await axios.post(action.config.webhookUrl, {
                   from: getEmailAddress(parsedEmail.from),
@@ -175,9 +179,9 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
                 });
                 console.log(`Sent webhook to ${action.config.webhookUrl} by rule "${rule.name}"`);
               }
-              break;
+            } break;
 
-            case 'kafka':
+            case 'kafka': {
               if (kafka && action.config.kafkaTopic) {
                 const producer = kafka.producer();
                 await producer.connect();
@@ -198,14 +202,13 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
                 await producer.disconnect();
                 console.log(`Sent message to Kafka topic ${action.config.kafkaTopic} by rule "${rule.name}"`);
               }
-              break;
+            } break;
           }
         } catch (actionError) {
           success = false;
           error = actionError instanceof Error ? actionError.message : 'Unknown error';
           console.error(`Error processing action for rule "${rule.name}":`, actionError);
         }
-        console.log('After Case again');
 
         processedRules.push({ 
           id: rule.id, 
@@ -223,26 +226,26 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
             error
           }
         });
-      }
 
-      console.log('Looping around again');
+        console.log(`Rule "${rule.name}" (${rule.id}) processed successfully:`, success);
+      }
     }
 
-    // Update email with processed status
-    if (parsedEmail.id) {
+    // Update email to mark it as processed after all rules are checked
+    if (rulesProcessed) {
       await prisma.email.update({
         where: { id: parsedEmail.id },
         data: {
-          processedByRules: rulesProcessed
+          processedByRules: true
         }
       });
-    }
 
-    if (rulesProcessed) {
+      console.log(`Email ${parsedEmail.id} processing summary:`);
+      console.log(`Total rules matched and processed: ${matchedRulesCount}`);
+
       const successfulRules = processedRules.filter(r => r.success);
       const failedRules = processedRules.filter(r => !r.success);
       
-      console.log(`Email ${parsedEmail.id} processing summary:`);
       if (successfulRules.length > 0) {
         console.log('Successfully processed by:', successfulRules.map(r => r.name).join(', '));
       }
@@ -250,6 +253,13 @@ export async function processEmailRules(parsedEmail: ProcessableEmail) {
         console.log('Failed processing by:', failedRules.map(r => `${r.name} (${r.error})`).join(', '));
       }
     } else {
+      // If no rules matched, ensure the email is marked as processed but with no rule
+      await prisma.email.update({
+        where: { id: parsedEmail.id },
+        data: {
+          processedByRules: false
+        }
+      });
       console.log(`Email ${parsedEmail.id} was not matched by any rules`);
     }
 
