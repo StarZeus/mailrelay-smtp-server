@@ -25,4 +25,4 @@ const smtpPort = parseInt(process.env.SMTP_PORT || '2525', 10);
 const smtpHost = process.env.SMTP_HOST || '0.0.0.0';
 
 // Start the SMTP server
-createSMTPServer(smtpPort, smtpHost); 
+createSMTPServer(smtpPort); 

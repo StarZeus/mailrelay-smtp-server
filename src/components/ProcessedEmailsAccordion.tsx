@@ -1,11 +1,27 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { Email } from '@/lib/types';
+import { format } from 'date-fns';
 
 interface ProcessedEmailsAccordionProps {
   emails: Email[];
   onSelectEmail: (email: Email) => void;
   selectedEmailId: number | null;
+}
+
+interface ProcessedRule {
+  id: number;
+  rule: {
+    id: number;
+    name: string;
+  };
+  processedAt: string;
+  success: boolean;
+  error?: string | null;
+}
+
+interface EmailWithProcessing extends Email {
+  processedRules: ProcessedRule[];
 }
 
 export default function ProcessedEmailsAccordion({ 
@@ -15,15 +31,20 @@ export default function ProcessedEmailsAccordion({
 }: ProcessedEmailsAccordionProps) {
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
-  // Group emails by rule name, only including processed emails with valid rules
-  const emailsByRule = emails.reduce<Record<string, Email[]>>((acc, email) => {
-    // Only include emails that have been processed by rules and have a rule name
-    if (!email.processedByRules || !email.processedByRuleName) return acc;
+  // Group emails by rule name
+  const emailsByRule = emails.reduce<Record<string, EmailWithProcessing[]>>((acc, email) => {
+    const emailWithProcessing = email as EmailWithProcessing;
     
-    if (!acc[email.processedByRuleName]) {
-      acc[email.processedByRuleName] = [];
-    }
-    acc[email.processedByRuleName].push(email);
+    emailWithProcessing.processedRules.forEach(processedRule => {
+      const ruleName = processedRule.rule.name;
+      if (!acc[ruleName]) {
+        acc[ruleName] = [];
+      }
+      if (!acc[ruleName].includes(emailWithProcessing)) {
+        acc[ruleName].push(emailWithProcessing);
+      }
+    });
+    
     return acc;
   }, {});
 
@@ -82,13 +103,33 @@ export default function ProcessedEmailsAccordion({
                       {email.subject || '(No Subject)'}
                     </span>
                     <span className="text-sm text-gray-500">
-                      {new Date(email.receivedAt).toLocaleString()}
+                      {format(new Date(email.receivedAt), 'MMM d, yyyy h:mm a')}
                     </span>
                   </div>
                   <div className="mt-1 flex items-center text-sm text-gray-500">
                     <span className="truncate">{email.from}</span>
                     <span className="mx-1">→</span>
                     <span className="truncate">{email.to}</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {email.processedRules.map((processedRule) => (
+                      <span
+                        key={processedRule.id}
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          processedRule.success
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}
+                        title={processedRule.error || undefined}
+                      >
+                        {processedRule.success ? (
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                        ) : (
+                          <XCircle className="w-3 h-3 mr-1" />
+                        )}
+                        {format(new Date(processedRule.processedAt), 'h:mm a')}
+                      </span>
+                    ))}
                   </div>
                 </button>
               ))}

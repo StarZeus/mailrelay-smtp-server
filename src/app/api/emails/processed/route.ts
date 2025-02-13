@@ -7,9 +7,13 @@ export async function GET() {
   try {
     const emails = await prisma.email.findMany({
       where: {
-        processedByRules: true,
-        processedByRuleName: {
-          not: null
+        processedByRules: true
+      },
+      include: {
+        processedRules: {
+          include: {
+            rule: true
+          }
         }
       },
       orderBy: {
@@ -17,8 +21,11 @@ export async function GET() {
       }
     });
 
-    console.log('Found processed emails:', emails.length);
-    return NextResponse.json(emails);
+    // Filter out emails with no processed rules
+    const emailsWithRules = emails.filter(email => email.processedRules.length > 0);
+
+    console.log('Found processed emails:', emailsWithRules.length);
+    return NextResponse.json(emailsWithRules);
   } catch (error) {
     console.error('Error fetching processed emails:', error);
     return NextResponse.json({ error: 'Failed to fetch processed emails' }, { status: 500 });

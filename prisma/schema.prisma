@@ -23,8 +23,7 @@ model Email {
   receivedAt      DateTime @default(now())
   isRead          Boolean  @default(false)
   processedByRules Boolean @default(false)
-  processedByRuleId Int?
-  processedByRuleName String?
+  processedRules  EmailRuleProcessing[]
 }
 
 model EmailRule {
@@ -34,4 +33,18 @@ model EmailRule {
   conditionGroups Json     // Array of RuleConditionGroup
   action          Json     // Action configuration
   createdAt       DateTime @default(now())
+  processedEmails EmailRuleProcessing[]
+}
+
+model EmailRuleProcessing {
+  id        Int       @id @default(autoincrement())
+  email     Email     @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  emailId   Int
+  rule      EmailRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ruleId    Int
+  processedAt DateTime @default(now())
+  success    Boolean  @default(true)
+  error      String?
+
+  @@unique([emailId, ruleId])
 }

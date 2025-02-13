@@ -8,6 +8,7 @@ import { Isolate, Reference } from 'isolated-vm';
 import prisma from '../src/lib/prisma';
 import { evaluateConditionGroup } from '../src/lib/rule-evaluator';
 import type { JavaScriptActionResult, RuleCondition, RuleConditionGroup, Email, RuleActionType } from '../src/lib/types';
+import type { PrismaClient } from '@prisma/client';
 
 // Type definitions
 let kafka: Kafka | null = null;
@@ -226,73 +227,103 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
       console.log(`Rule "${rule.name}" (${rule.id}) matches:`, ruleMatches);
 
       if (ruleMatches) {
-        // Update email with rule information immediately
-        await prisma.email.update({
-          where: { id: parsedEmail.id },
-          data: {
-            processedByRules: true,
-            processedByRuleId: rule.id,
-            processedByRuleName: rule.name
+        try {
+          // Create the rule processing record
+          await prisma.emailRuleProcessing.create({
+            data: {
+              emailId: parsedEmail.id!,
+              ruleId: rule.id,
+              success: true
+            }
+          });
+
+          // Update email to mark it as processed
+          await prisma.email.update({
+            where: { id: parsedEmail.id },
+            data: {
+              processedByRules: true
+            }
+          });
+
+          console.log(`Updated email ${parsedEmail.id} with rule "${rule.name}" (${rule.id})`);
+
+          const action = typeof rule.action === 'string'
+            ? JSON.parse(rule.action)
+            : rule.action;
+
+          // Process the rule action
+          switch (action.type) {
+            case 'forward':
+              if (action.config.forwardTo) {
+                await transporter.sendMail({
+                  from: getEmailAddress(parsedEmail.from),
+                  to: action.config.forwardTo,
+                  subject: parsedEmail.subject || '',
+                  text: parsedEmail.text || '',
+                  html: parsedEmail.html || undefined,
+                  attachments: parsedEmail.attachments?.map(convertAttachment)
+                });
+                console.log(`Forwarded email to ${action.config.forwardTo}`);
+              }
+              break;
+
+            case 'webhook':
+              if (action.config.webhookUrl) {
+                await axios.post(action.config.webhookUrl, {
+                  from: getEmailAddress(parsedEmail.from),
+                  to: getEmailAddress(parsedEmail.to),
+                  subject: parsedEmail.subject || '',
+                  text: parsedEmail.text || '',
+                  html: parsedEmail.html || null,
+                  receivedAt: new Date()
+                });
+                console.log(`Sent webhook to ${action.config.webhookUrl}`);
+              }
+              break;
+
+            case 'kafka':
+              if (kafka && action.config.kafkaTopic) {
+                const producer = kafka.producer();
+                await producer.connect();
+                await producer.send({
+                  topic: action.config.kafkaTopic,
+                  messages: [{
+                    value: JSON.stringify({
+                      from: getEmailAddress(parsedEmail.from),
+                      to: getEmailAddress(parsedEmail.to),
+                      subject: parsedEmail.subject,
+                      text: parsedEmail.text,
+                      html: parsedEmail.html,
+                      receivedAt: new Date()
+                    })
+                  }]
+                });
+                await producer.disconnect();
+                console.log(`Sent message to Kafka topic ${action.config.kafkaTopic}`);
+              }
+              break;
           }
-        });
-
-        console.log(`Updated email ${parsedEmail.id} with rule "${rule.name}" (${rule.id})`);
-
-        const action = typeof rule.action === 'string'
-          ? JSON.parse(rule.action)
-          : rule.action;
-
-        // Process the rule action
-        switch (action.type) {
-          case 'forward':
-            if (action.config.forwardTo) {
-              await transporter.sendMail({
-                from: getEmailAddress(parsedEmail.from),
-                to: action.config.forwardTo,
-                subject: parsedEmail.subject || '',
-                text: parsedEmail.text || '',
-                html: parsedEmail.html || undefined,
-                attachments: parsedEmail.attachments?.map(convertAttachment)
-              });
-              console.log(`Forwarded email to ${action.config.forwardTo}`);
+        } catch (err) {
+          const error = err as Error;
+          console.error(`Error processing rule "${rule.name}" for email ${parsedEmail.id}:`, error);
+          
+          // Update email record with error info
+          await prisma.email.update({
+            where: { id: parsedEmail.id },
+            data: {
+              processedByRules: true
             }
-            break;
+          });
 
-          case 'webhook':
-            if (action.config.webhookUrl) {
-              await axios.post(action.config.webhookUrl, {
-                from: getEmailAddress(parsedEmail.from),
-                to: getEmailAddress(parsedEmail.to),
-                subject: parsedEmail.subject || '',
-                text: parsedEmail.text || '',
-                html: parsedEmail.html || null,
-                receivedAt: new Date()
-              });
-              console.log(`Sent webhook to ${action.config.webhookUrl}`);
+          // Create error record
+          await prisma.emailRuleProcessing.create({
+            data: {
+              emailId: parsedEmail.id!,
+              ruleId: rule.id,
+              success: false,
+              error: error.message || 'Unknown error'
             }
-            break;
-
-          case 'kafka':
-            if (kafka && action.config.kafkaTopic) {
-              const producer = kafka.producer();
-              await producer.connect();
-              await producer.send({
-                topic: action.config.kafkaTopic,
-                messages: [{
-                  value: JSON.stringify({
-                    from: getEmailAddress(parsedEmail.from),
-                    to: getEmailAddress(parsedEmail.to),
-                    subject: parsedEmail.subject,
-                    text: parsedEmail.text,
-                    html: parsedEmail.html,
-                    receivedAt: new Date()
-                  })
-                }]
-              });
-              await producer.disconnect();
-              console.log(`Sent message to Kafka topic ${action.config.kafkaTopic}`);
-            }
-            break;
+          });
         }
 
         // Return after processing the first matching rule
@@ -304,9 +335,7 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
     await prisma.email.update({
       where: { id: parsedEmail.id },
       data: {
-        processedByRules: false,
-        processedByRuleId: null,
-        processedByRuleName: null
+        processedByRules: false
       }
     });
     console.log(`Email ${parsedEmail.id} was not matched by any rules`);
@@ -321,8 +350,9 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
  * Creates and starts an SMTP server
  * @param {number} port - The port to listen on
  */
-export function createSMTPServer(port = 2525) {
+export function createSMTPServer(port = 2525, host = '0.0.0.0') {
   console.log('Creating SMTP server on port:', port);
+  console.log('Creating SMTP server on host:', host);
   
   const server = new SMTPServer({
     secure: false,

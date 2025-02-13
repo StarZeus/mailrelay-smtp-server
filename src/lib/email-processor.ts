@@ -2,6 +2,46 @@ import nodemailer from 'nodemailer';
 import type { EmailRule, Email, RuleConditionGroup } from './types';
 import { evaluateConditionGroup } from './rule-evaluator';
 import prisma from './prisma';
+import axios from 'axios';
+import { Kafka } from 'kafkajs';
+import type { ParsedMail, AddressObject, Attachment } from 'mailparser';
+import type { Attachment as NodemailerAttachment } from 'nodemailer/lib/mailer';
+
+// Type definitions
+interface ProcessableEmail extends ParsedMail {
+  id?: number;
+  receivedAt: Date;
+}
+
+let kafka: Kafka | null = null;
+
+// Initialize Kafka client if configured
+if (process.env.KAFKA_BROKERS) {
+  kafka = new Kafka({
+    clientId: 'email-rules',
+    brokers: process.env.KAFKA_BROKERS.split(','),
+  });
+}
+
+// Helper function to safely get email address
+function getEmailAddress(address: AddressObject | AddressObject[] | undefined): string {
+  if (!address) return '';
+  if (Array.isArray(address)) {
+    return address.map(a => a.text).join(', ');
+  }
+  return address.text || '';
+}
+
+// Helper function to convert mailparser attachment to nodemailer attachment
+function convertAttachment(att: Attachment): NodemailerAttachment {
+  return {
+    filename: att.filename,
+    content: att.content,
+    contentType: att.contentType,
+    contentDisposition: 'attachment',
+    cid: att.cid
+  };
+}
 
 // Create reusable transporter
 const transporter = nodemailer.createTransport({
@@ -72,37 +112,150 @@ async function executeRuleAction(email: Email, rule: any) {
   }
 }
 
-export async function processEmailRules(email: Email) {
+export async function processEmailRules(parsedEmail: ProcessableEmail) {
   try {
+    // Fetch all active rules
     const rules = await prisma.emailRule.findMany({
-      where: { isActive: true }
+      where: { isActive: true },
+      orderBy: { id: 'asc' } // Process rules in order of creation
     });
 
-    console.log('Processing rules:', rules);
+    console.log(`Processing ${rules.length} active rules for email:`, parsedEmail.id);
     
+    let rulesProcessed = false;
+    const processedRules: { id: number; name: string; success: boolean; error?: string }[] = [];
+
     for (const rule of rules) {
-      const ruleMatches = evaluateRule(email, rule);
-      console.log('Rule matches:', ruleMatches);
-      
+      const conditionGroups = (typeof rule.conditionGroups === 'string'
+        ? JSON.parse(rule.conditionGroups)
+        : rule.conditionGroups) as RuleConditionGroup[];
+
+      const ruleMatches = conditionGroups?.some(group => 
+        evaluateConditionGroup(group, parsedEmail)
+      );
+
+      console.log(`Rule "${rule.name}" (${rule.id}) matches:`, ruleMatches);
+
       if (ruleMatches) {
-        await executeRuleAction(email, rule);
-        // Update email to mark which rule processed it
-        await prisma.email.update({
-          where: { id: email.id },
+        rulesProcessed = true;
+        let success = true;
+        let error: string | undefined;
+
+        try {
+          const action = typeof rule.action === 'string'
+            ? JSON.parse(rule.action)
+            : rule.action;
+
+          // Process the rule action
+          switch (action.type) {
+            case 'forward':
+              if (action.config.forwardTo) {
+                await transporter.sendMail({
+                  from: getEmailAddress(parsedEmail.from),
+                  to: action.config.forwardTo,
+                  subject: parsedEmail.subject || '',
+                  text: parsedEmail.text || '',
+                  html: parsedEmail.html || undefined,
+                  attachments: parsedEmail.attachments?.map(convertAttachment)
+                });
+                console.log(`Forwarded email to ${action.config.forwardTo} by rule "${rule.name}"`);
+              }
+              break;
+
+            case 'webhook':
+              if (action.config.webhookUrl) {
+                await axios.post(action.config.webhookUrl, {
+                  from: getEmailAddress(parsedEmail.from),
+                  to: getEmailAddress(parsedEmail.to),
+                  subject: parsedEmail.subject || '',
+                  text: parsedEmail.text || '',
+                  html: parsedEmail.html || null,
+                  receivedAt: new Date(),
+                  processedByRule: rule.name
+                });
+                console.log(`Sent webhook to ${action.config.webhookUrl} by rule "${rule.name}"`);
+              }
+              break;
+
+            case 'kafka':
+              if (kafka && action.config.kafkaTopic) {
+                const producer = kafka.producer();
+                await producer.connect();
+                await producer.send({
+                  topic: action.config.kafkaTopic,
+                  messages: [{
+                    value: JSON.stringify({
+                      from: getEmailAddress(parsedEmail.from),
+                      to: getEmailAddress(parsedEmail.to),
+                      subject: parsedEmail.subject,
+                      text: parsedEmail.text,
+                      html: parsedEmail.html,
+                      receivedAt: new Date(),
+                      processedByRule: rule.name
+                    })
+                  }]
+                });
+                await producer.disconnect();
+                console.log(`Sent message to Kafka topic ${action.config.kafkaTopic} by rule "${rule.name}"`);
+              }
+              break;
+          }
+        } catch (actionError) {
+          success = false;
+          error = actionError instanceof Error ? actionError.message : 'Unknown error';
+          console.error(`Error processing action for rule "${rule.name}":`, actionError);
+        }
+        console.log('After Case again');
+
+        processedRules.push({ 
+          id: rule.id, 
+          name: rule.name,
+          success,
+          error
+        });
+
+        // Create rule processing record
+        await prisma.emailRuleProcessing.create({
           data: {
-            processedByRules: true,
-            processedByRuleId: rule.id,
-            processedByRuleName: rule.name
+            emailId: parsedEmail.id!,
+            ruleId: rule.id,
+            success,
+            error
           }
         });
-        return true;
       }
+
+      console.log('Looping around again');
     }
 
-    return false;
+    // Update email with processed status
+    if (parsedEmail.id) {
+      await prisma.email.update({
+        where: { id: parsedEmail.id },
+        data: {
+          processedByRules: rulesProcessed
+        }
+      });
+    }
+
+    if (rulesProcessed) {
+      const successfulRules = processedRules.filter(r => r.success);
+      const failedRules = processedRules.filter(r => !r.success);
+      
+      console.log(`Email ${parsedEmail.id} processing summary:`);
+      if (successfulRules.length > 0) {
+        console.log('Successfully processed by:', successfulRules.map(r => r.name).join(', '));
+      }
+      if (failedRules.length > 0) {
+        console.log('Failed processing by:', failedRules.map(r => `${r.name} (${r.error})`).join(', '));
+      }
+    } else {
+      console.log(`Email ${parsedEmail.id} was not matched by any rules`);
+    }
+
   } catch (error) {
     console.error('Error processing email rules:', error);
-    return false;
+    throw error;
   }
 }
 
