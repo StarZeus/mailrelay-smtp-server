@@ -1,5 +1,5 @@
-# Use Node.js LTS (iron) as the base image
-FROM node:20-slim AS base
+# Use Node.js LTS with Debian bullseye for OpenSSL 1.1 support
+FROM node:20-bullseye-slim AS base
 WORKDIR /app
 
 # Install dependencies only when needed
