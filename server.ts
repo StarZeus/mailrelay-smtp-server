@@ -21,5 +21,8 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
+const smtpPort = parseInt(process.env.SMTP_PORT || '2525', 10);
+const smtpHost = process.env.SMTP_HOST || '0.0.0.0';
+
 // Start the SMTP server
-createSMTPServer(2525); 
+createSMTPServer(smtpPort, smtpHost); 

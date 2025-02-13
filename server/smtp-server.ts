@@ -14,10 +14,24 @@ let kafka: Kafka | null = null;
 
 // Create a reusable transporter object for email forwarding
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'localhost',
-  port: parseInt(process.env.SMTP_PORT || '25'),
-  secure: false,
+  host: process.env.FORWARD_SMTP_HOST,
+  port: parseInt(process.env.FORWARD_SMTP_PORT || '2525'),
+  secure: process.env.FORWARD_SMTP_SECURE === 'true',
+  ...(process.env.FORWARD_SMTP_USER && process.env.FORWARD_SMTP_PASS ? {
+    auth: {
+      user: process.env.FORWARD_SMTP_USER,
+      pass: process.env.FORWARD_SMTP_PASS
+    }
+  } : {}),
+  tls: {
+    rejectUnauthorized: process.env.NODE_ENV === 'production'
+  }
 });
+
+// Verify transporter connection
+transporter.verify()
+  .then(() => console.log('SMTP Forwarding Connection Verified'))
+  .catch(err => console.error('SMTP Forwarding Connection Error:', err));
 
 // Initialize Kafka client if configured
 if (process.env.KAFKA_BROKERS) {

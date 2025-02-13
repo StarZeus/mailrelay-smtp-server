@@ -155,8 +155,8 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
     }
 
     // If no rules matched, mark the email as processed but with no rule
-    await prisma.email.update({
-      where: { id: parsedEmail.id },
+      await prisma.email.update({
+        where: { id: parsedEmail.id },
       data: {
         processedByRules: false,
         processedByRuleId: null,
@@ -174,15 +174,16 @@ async function processEmailRules(parsedEmail: ProcessableEmail) {
 /**
  * Creates and starts an SMTP server
  * @param {number} port - The port to listen on
+ * @param {string} host - The host to bind to
  */
-export function createSMTPServer(port = 2525) {
-  console.log('Creating SMTP server on port:', port);
+export function createSMTPServer(port = 2525, host = '0.0.0.0') {
+  console.log(`Creating SMTP server on ${host}:${port}`);
   
   const server = new SMTPServer({
     secure: false,
     disabledCommands: ['AUTH', 'STARTTLS'],
     logger: true,
-    size: 31457280, // 30MB max message size
+    size: parseInt(process.env.SMTP_MAX_SIZE || '31457280'), // 30MB max message size
     hideSTARTTLS: true,
     onData(stream, session, callback) {
       console.log('Receiving email data...');
@@ -250,9 +251,9 @@ export function createSMTPServer(port = 2525) {
   });
 
   try {
-    server.listen(port, '0.0.0.0', () => {
-      console.log('✓ SMTP Server running on port', port);
-      console.log('  You can now send emails to localhost:', port);
+    server.listen(port, host, () => {
+      console.log('✓ SMTP Server running on', host + ':' + port);
+      console.log('  You can now send emails to', host + ':' + port);
     });
   } catch (error) {
     console.error('Failed to start SMTP server:', error);
@@ -260,4 +261,4 @@ export function createSMTPServer(port = 2525) {
   }
 
   return server;
-} 
+}

@@ -5,21 +5,34 @@ import prisma from './prisma';
 
 // Create reusable transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'localhost',
-  port: parseInt(process.env.SMTP_PORT || '2525'),
-  secure: false,
+  host: process.env.FORWARD_SMTP_HOST || process.env.SMTP_HOST || 'localhost',
+  port: parseInt(process.env.FORWARD_SMTP_PORT || process.env.SMTP_PORT || '2525'),
+  secure: process.env.FORWARD_SMTP_SECURE === 'true',
+  ...(process.env.FORWARD_SMTP_USER && process.env.FORWARD_SMTP_PASS ? {
+    auth: {
+      user: process.env.FORWARD_SMTP_USER,
+      pass: process.env.FORWARD_SMTP_PASS
+    }
+  } : {}),
   tls: {
-    rejectUnauthorized: false
+    rejectUnauthorized: process.env.NODE_ENV === 'production'
   },
-  debug: true,
-  logger: true
+  debug: process.env.NODE_ENV !== 'production',
+  logger: process.env.NODE_ENV !== 'production'
 });
 
-// Log transporter configuration
-console.log('SMTP Transporter Configuration:', {
-  host: process.env.SMTP_HOST || 'localhost',
-  port: parseInt(process.env.SMTP_PORT || '2525')
+// Log transporter configuration (without sensitive data)
+console.log('SMTP Forwarding Configuration:', {
+  host: process.env.FORWARD_SMTP_HOST || process.env.SMTP_HOST || 'localhost',
+  port: parseInt(process.env.FORWARD_SMTP_PORT || process.env.SMTP_PORT || '2525'),
+  secure: process.env.FORWARD_SMTP_SECURE === 'true',
+  auth: process.env.FORWARD_SMTP_USER ? { user: process.env.FORWARD_SMTP_USER } : undefined
 });
+
+// Verify transporter connection
+transporter.verify()
+  .then(() => console.log('SMTP Forwarding Connection Verified'))
+  .catch(err => console.error('SMTP Forwarding Connection Error:', err));
 
 // Helper functions
 function evaluateRule(email: Email, rule: any): boolean {
